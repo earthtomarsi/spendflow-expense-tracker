@@ -81,33 +81,41 @@ function validateAmountLive() {
 }
 
 function renderExpenses() {
-  const list = document.getElementById("expense-list");
-  list.innerHTML = "";
-
-  if (expenses.length === 0) {
-    list.innerHTML = "<p>No expenses yet</p>";
-    document.getElementById("total").textContent = formatCurrency(0);
-    document.getElementById("category-totals").innerHTML = "";
-    return;
-  }
-
-  let total = 0;
-
-  expenses.forEach((expense, index) => {
-    total += expense.amount;
-
-    const li = document.createElement("li");
-    li.className = "expense-item";
-    li.innerHTML = `
-      <span>${expense.name} (${formatCurrency(expense.amount)}) - ${expense.category}</span>
-      <button class="delete-btn" onclick="deleteExpense(${index})">×</button>
-    `;
-
-    list.appendChild(li);
-  });
-
-  document.getElementById("total").textContent = formatCurrency(total);
-  updateCategoryTotals();
+    const list = document.getElementById("expense-list");
+    const emptyState = document.getElementById("empty-state");
+  
+    list.innerHTML = "";
+  
+    if (expenses.length === 0) {
+      emptyState.style.display = "block";
+      document.getElementById("total").textContent = formatCurrency(0);
+      document.getElementById("category-totals").innerHTML = "";
+      return;
+    }
+  
+    // hide empty state when there are expenses
+    emptyState.style.display = "none";
+  
+    let total = 0;
+  
+    expenses.forEach((expense, index) => {
+      total += expense.amount;
+  
+      const li = document.createElement("li");
+      li.className = "expense-item";
+  
+      li.innerHTML = `
+        <span>
+          ${expense.name} (${formatCurrency(expense.amount)}) - ${expense.category}
+        </span>
+        <button class="delete-btn" onclick="deleteExpense(${index})">×</button>
+      `;
+  
+      list.appendChild(li);
+    });
+  
+    document.getElementById("total").textContent = formatCurrency(total);
+    updateCategoryTotals();
 }
 
 function deleteExpense(index) {
