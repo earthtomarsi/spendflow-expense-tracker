@@ -126,7 +126,28 @@
 </div>
   
 <div class="table-section">
+<div class="table-header">
   <h3>Expense History</h3>
+
+  <div class="table-topbar">
+    <div class="table-search">
+      <input id="expense-search" type="text" placeholder="Search by title">
+      <button type="button" class="search-icon-btn" aria-label="Search" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7"></circle>
+          <path d="M20 20L16.65 16.65"></path>
+        </svg>
+      </button>
+    </div>
+
+    <div class="table-pagination">
+      <span id="page-indicator">1-10 of 12</span>
+      <button id="prev-page-btn" type="button" class="page-btn" aria-label="Previous page">&#8249;</button>
+      <button id="next-page-btn" type="button" class="page-btn" aria-label="Next page">&#8250;</button>
+    </div>
+  </div>
+</div>
+
 <table id="expense-table">
 <thead>
     <tr>
@@ -145,6 +166,11 @@
     </tr>
 </tbody>
 </table>
+
+<div class="table-actions">
+  <button id="edit-table-btn" type="button" class="table-action-btn">Edit</button>
+  <button id="cancel-table-btn" type="button" class="table-action-btn secondary">Cancel</button>
+</div>
 
 <div class="summary-section">
   <h3>Summary</h3>

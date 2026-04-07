@@ -1,10 +1,17 @@
 let expenses = [];
+let draftExpenses = [];
 const API_BASE = "";
+
 let categoryChart = null;
 let pieChart = null;
 let currentFilter = "All";
 let currentSort = "date-desc";
 let currentMonthFilter = "All";
+let currentSearch = "";
+let pendingSearch = "";
+let currentPage = 1;
+const rowsPerPage = 10;
+let isEditMode = false;
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -20,21 +27,20 @@ const descError = document.getElementById("desc-error");
 const descCounter = document.getElementById("desc-counter");
 const monthFilterInput = document.getElementById("month-filter");
 const clearMonthBtn = document.getElementById("clear-month");
+const editTableBtn = document.getElementById("edit-table-btn");
+const cancelTableBtn = document.getElementById("cancel-table-btn");
+const expenseSearchInput = document.getElementById("expense-search");
+const searchIconBtn = document.querySelector(".search-icon-btn");
+const prevPageBtn = document.getElementById("prev-page-btn");
+const nextPageBtn = document.getElementById("next-page-btn");
+const pageIndicator = document.getElementById("page-indicator");
 
-async function loadExpenses() {
-  try {
-    const response = await fetch(`${API_BASE}/expenses`);
-    const data = await response.json();
+function cloneExpenses(expenseList) {
+  return expenseList.map(exp => ({ ...exp }));
+}
 
-    expenses = data.map(exp => ({
-      ...exp,
-      dateError: ""
-    }));
-
-    renderExpenses();
-  } catch (error) {
-    console.error("Failed to load expenses:", error);
-  }
+function getTableExpenses() {
+  return isEditMode ? draftExpenses : expenses;
 }
 
 function buildExpensePayload(expense) {
@@ -45,6 +51,58 @@ function buildExpensePayload(expense) {
     date: expense.date,
     description: expense.description
   };
+}
+
+function getTodayLocalDate() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .split("T")[0];
+}
+
+function formatDateDisplay(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+
+  const [year, month, day] = value.split("-");
+  return `${month}/${day}/${year}`;
+}
+
+function getFilteredExpenses(sourceExpenses, includeSearch = true) {
+  let filtered = [...sourceExpenses];
+
+  if (currentMonthFilter !== "All") {
+    filtered = filtered.filter(exp => exp.date && exp.date.slice(0, 7) === currentMonthFilter);
+  }
+
+  if (currentFilter !== "All") {
+    filtered = filtered.filter(exp => exp.category === currentFilter);
+  }
+
+  if (includeSearch && currentSearch) {
+    filtered = filtered.filter(exp =>
+      exp.expenseName.toLowerCase().includes(currentSearch)
+    );
+  }
+
+  filtered.sort((a, b) => {
+    switch (currentSort) {
+      case "amount-asc":
+        return a.amount - b.amount;
+      case "amount-desc":
+        return b.amount - a.amount;
+      case "name-asc":
+        return a.expenseName.localeCompare(b.expenseName);
+      case "name-desc":
+        return b.expenseName.localeCompare(a.expenseName);
+      case "date-asc":
+        return new Date(a.date) - new Date(b.date);
+      case "date-desc":
+      default:
+        return new Date(b.date) - new Date(a.date);
+    }
+  });
+
+  return filtered;
 }
 
 async function createExpenseInDatabase(expense) {
@@ -91,16 +149,62 @@ async function deleteExpenseFromDatabase(id) {
   return await response.json();
 }
 
+function isExpenseDifferent(a, b) {
+  return (
+    a.expenseName !== b.expenseName ||
+    a.category !== b.category ||
+    Number(a.amount) !== Number(b.amount) ||
+    a.date !== b.date ||
+    a.description !== b.description
+  );
+}
+
+async function saveDraftChanges() {
+  const savedById = new Map(expenses.map(exp => [exp.id, exp]));
+  const draftById = new Map(draftExpenses.map(exp => [exp.id, exp]));
+
+  for (const savedExpense of expenses) {
+    if (!draftById.has(savedExpense.id)) {
+      await deleteExpenseFromDatabase(savedExpense.id);
+    }
+  }
+
+  for (const draftExpense of draftExpenses) {
+    const savedExpense = savedById.get(draftExpense.id);
+
+    if (savedExpense && isExpenseDifferent(savedExpense, draftExpense)) {
+      await updateExpenseInDatabase(draftExpense);
+    }
+  }
+
+  expenses = cloneExpenses(draftExpenses);
+}
+
+async function loadExpenses() {
+  try {
+    const response = await fetch(`${API_BASE}/expenses`);
+    const data = await response.json();
+
+    expenses = data.map(exp => ({
+      ...exp,
+      dateError: ""
+    }));
+
+    draftExpenses = cloneExpenses(expenses);
+    renderExpenses();
+  } catch (error) {
+    console.error("Failed to load expenses:", error);
+  }
+}
+
 // Event listeners
 addBtn.addEventListener("click", addExpense);
 
-// Clear name error as user types in name
 expenseNameInput.addEventListener("input", () => {
   expenseNameError.textContent = "";
   expenseNameInput.classList.remove("error");
 });
 
-// Clear amount error + live validation as user types in amount
 amountInput.addEventListener("input", () => {
   const raw = amountInput.value.trim();
   const helper = document.getElementById("amount-helper");
@@ -140,18 +244,20 @@ document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.classList.add("active");
 
     currentFilter = btn.dataset.category;
-
+    currentPage = 1;
     renderExpenses();
   });
 });
 
 document.getElementById("sort-select").addEventListener("change", (e) => {
   currentSort = e.target.value;
+  currentPage = 1;
   renderExpenses();
 });
 
 monthFilterInput.addEventListener("change", (e) => {
   currentMonthFilter = e.target.value || "All";
+  currentPage = 1;
   syncMonthFilterState();
   renderExpenses();
 });
@@ -159,16 +265,72 @@ monthFilterInput.addEventListener("change", (e) => {
 clearMonthBtn.addEventListener("click", () => {
   currentMonthFilter = "All";
   monthFilterInput.value = "";
+  currentPage = 1;
   syncMonthFilterState();
   renderExpenses();
 });
 
-function getTodayLocalDate() {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .split("T")[0];
+editTableBtn.addEventListener("click", async () => {
+  if (!isEditMode) {
+    isEditMode = true;
+    draftExpenses = cloneExpenses(expenses);
+    editTableBtn.textContent = "Save";
+    cancelTableBtn.classList.remove("inactive");
+    renderExpenses();
+    return;
+  }
+
+  try {
+    await saveDraftChanges();
+    isEditMode = false;
+    editTableBtn.textContent = "Edit";
+    cancelTableBtn.classList.add("inactive");
+    draftExpenses = cloneExpenses(expenses);
+    renderExpenses();
+  } catch (error) {
+    console.error("Save failed:", error);
+    alert("Failed to save changes");
+  }
+});
+
+cancelTableBtn.addEventListener("click", () => {
+  draftExpenses = cloneExpenses(expenses);
+  isEditMode = false;
+  editTableBtn.textContent = "Edit";
+  cancelTableBtn.classList.add("inactive");
+  renderExpenses();
+});
+
+expenseSearchInput.addEventListener("input", (e) => {
+  pendingSearch = e.target.value.trim().toLowerCase();
+
+  if (searchIconBtn) {
+    searchIconBtn.disabled = pendingSearch === "";
+  }
+
+  if (pendingSearch === "") {
+    currentSearch = "";
+    currentPage = 1;
+    renderExpenses();
+  }
+});
+
+if (searchIconBtn) {
+  searchIconBtn.addEventListener("click", () => {
+    currentSearch = pendingSearch;
+    currentPage = 1;
+    renderExpenses();
+    expenseSearchInput.focus();
+  });
 }
+
+expenseSearchInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    currentSearch = pendingSearch;
+    currentPage = 1;
+    renderExpenses();
+  }
+});
 
 dateInput.addEventListener("input", () => {
   const value = dateInput.value;
@@ -211,11 +373,32 @@ dateInput.addEventListener("input", () => {
   dateInput.classList.remove("error");
 });
 
+if (prevPageBtn) {
+  prevPageBtn.addEventListener("click", () => {
+    if (currentPage > 1) {
+      currentPage--;
+      renderExpenses();
+    }
+  });
+}
+
+if (nextPageBtn) {
+  nextPageBtn.addEventListener("click", () => {
+    currentPage++;
+    renderExpenses();
+  });
+}
+
 function hasInvalidLeadingZero(value) {
   return /^0\d/.test(value.trim());
 }
 
 async function addExpense() {
+  if (isEditMode) {
+    alert("Save or cancel your table edits before adding a new expense.");
+    return;
+  }
+
   const expenseName = expenseNameInput.value.trim();
   const amountRaw = amountInput.value;
   const amount = amountRaw === "" ? null : Number(amountRaw);
@@ -230,7 +413,6 @@ async function addExpense() {
 
   let hasError = false;
 
-  // NAME validation
   if (!expenseName) {
     expenseNameError.textContent = "Please enter an expense name";
     expenseNameInput.classList.add("error");
@@ -239,7 +421,6 @@ async function addExpense() {
     expenseNameInput.classList.remove("error");
   }
 
-  // AMOUNT validation
   if (amountRaw === "" || amount === null) {
     amountError.textContent = "Please enter an expense amount";
     amountInput.classList.add("error");
@@ -260,16 +441,18 @@ async function addExpense() {
     amountInput.classList.remove("error");
   }
 
-  // DATE validation
   if (dateInput.value === "" || dateInput.value == null) {
     dateError.textContent = "Please select a date";
+    dateInput.classList.add("error");
+    hasError = true;
+  } else if (date > getTodayLocalDate()) {
+    dateError.textContent = "Date cannot be after today";
     dateInput.classList.add("error");
     hasError = true;
   } else {
     dateInput.classList.remove("error");
   }
 
-  // DESCRIPTION
   if (!description) {
     descError.textContent = "Please enter a description";
     descInput.classList.add("error");
@@ -293,7 +476,10 @@ async function addExpense() {
       description
     });
 
-    expenses.push({ ...newExpense, dateError: "" });
+    const normalized = { ...newExpense, dateError: "" };
+    expenses.push(normalized);
+    draftExpenses = cloneExpenses(expenses);
+    currentPage = 1;
     renderExpenses();
   } catch (error) {
     console.error("Create failed:", error);
@@ -301,7 +487,6 @@ async function addExpense() {
     return;
   }
 
-  // Clear inputs
   expenseNameInput.value = "";
   amountInput.value = "";
   dateInput.value = "";
@@ -340,41 +525,19 @@ function renderExpenses() {
   const body = document.getElementById("expense-body");
   body.innerHTML = "";
 
-  let filtered = [...expenses];
+  const sourceExpenses = getTableExpenses();
+  const filtered = getFilteredExpenses(sourceExpenses, true);
+  const savedFiltered = getFilteredExpenses(expenses, false);
 
-// MONTH FILTER
-if (currentMonthFilter !== "All") {
-  filtered = filtered.filter(exp => exp.date && exp.date.slice(0, 7) === currentMonthFilter);
-}
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
 
-// CATEGORY FILTER
-if (currentFilter !== "All") {
-  filtered = filtered.filter(exp => exp.category === currentFilter);
-}
-
-// SORT
-filtered.sort((a, b) => {
-  switch (currentSort) {
-    case "amount-asc":
-      return a.amount - b.amount;
-
-    case "amount-desc":
-      return b.amount - a.amount;
-
-    case "name-asc":
-      return a.expenseName.localeCompare(b.expenseName);
-
-    case "name-desc":
-      return b.expenseName.localeCompare(a.expenseName);
-
-    case "date-asc":
-      return new Date(a.date) - new Date(b.date);
-
-    case "date-desc":
-    default:
-      return new Date(b.date) - new Date(a.date);
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
   }
-});
+
+  const startIndex = (currentPage - 1) * rowsPerPage;
+  const endIndex = startIndex + rowsPerPage;
+  const paginatedExpenses = filtered.slice(startIndex, endIndex);
 
   if (expenses.length === 0) {
     body.innerHTML = `
@@ -403,6 +566,10 @@ filtered.sort((a, b) => {
       trendSection.style.display = "none";
     }
 
+    if (pageIndicator) pageIndicator.textContent = "0-0 of 0";
+    if (prevPageBtn) prevPageBtn.disabled = true;
+    if (nextPageBtn) nextPageBtn.disabled = true;
+
     return;
   }
 
@@ -410,60 +577,72 @@ filtered.sort((a, b) => {
     body.innerHTML = `
       <tr>
         <td colspan="6" class="empty-state-cell">
-          No expenses found for this filter
+          No expenses found
         </td>
       </tr>
     `;
 
+    document.getElementById("total").textContent = formatCurrency(
+      savedFiltered.reduce((sum, exp) => sum + exp.amount, 0)
+    );
+    updateCategoryTotals();
+    renderChart();
+    renderPieChart();
+
+    if (pageIndicator) pageIndicator.textContent = "Page 1 of 1";
+    if (prevPageBtn) prevPageBtn.disabled = true;
+    if (nextPageBtn) nextPageBtn.disabled = true;
+
     return;
   }
 
-  let total = 0;
-
-  filtered.forEach((expense) => {
-    const index = expenses.indexOf(expense);
-    total += expense.amount;
-
-    const row = document.createElement("tr");
-
+  paginatedExpenses.forEach((expense) => {
+    const index = sourceExpenses.indexOf(expense);
     const categoryOptions = Array.from(categoryInput.options)
       .map(opt => `<option value="${opt.value}" ${opt.value === expense.category ? "selected" : ""}>${opt.text}</option>`)
       .join("");
 
+    const row = document.createElement("tr");
+
     row.innerHTML = `
-      <td class="editable"
-          contenteditable="true"
-          onfocus="this.classList.add('editing')"
-          onblur="this.classList.remove('editing'); updateExpense(${index}, 'expenseName', this.innerText)">
-        ${expense.expenseName}
+      <td class="editable title-cell ${!isEditMode ? "locked" : ""}"
+          contenteditable="${isEditMode}"
+          onfocus="if(${isEditMode}) this.classList.add('editing')"
+          onblur="this.classList.remove('editing'); if(${isEditMode}) updateExpense(${index}, 'expenseName', this.innerText)">
+        <span class="cell-text">${expense.expenseName}</span>
       </td>
 
-      <td class="editable"
-          contenteditable="true"
-          onfocus="this.classList.add('editing')"
-          onblur="this.classList.remove('editing'); updateExpense(${index}, 'amount', this.innerText, this)">
+      <td class="editable ${!isEditMode ? "locked" : ""}"
+          contenteditable="${isEditMode}"
+          onfocus="if(${isEditMode}) this.classList.add('editing')"
+          onblur="this.classList.remove('editing'); if(${isEditMode}) updateExpense(${index}, 'amount', this.innerText, this)">
         ${expense.amount}
       </td>
 
-      <td class="category-cell">
+      <td class="category-cell ${!isEditMode ? "locked" : ""}">
         <select class="editable"
+                ${!isEditMode ? "disabled" : ""}
                 onchange="updateExpense(${index}, 'category', this.value)">
           ${categoryOptions}
         </select>
       </td>
 
-      <td class="editable date-cell" contenteditable="true"
-        onblur="updateExpense(${index}, 'date', this.innerText, this)">${expense.date || ""}
+      <td class="editable date-cell ${!isEditMode ? "locked" : ""}"
+          contenteditable="${isEditMode}"
+          onfocus="if(${isEditMode}) this.classList.add('editing')"
+          onblur="this.classList.remove('editing'); if(${isEditMode}) updateExpense(${index}, 'date', this.innerText, this)">
+        ${formatDateDisplay(expense.date) || ""}
       </td>
 
-      <td class="editable"
-          contenteditable="true"
-          onblur="updateExpense(${index}, 'description', this.innerText)">
+      <td class="editable ${!isEditMode ? "locked" : ""}"
+          contenteditable="${isEditMode}"
+          onfocus="if(${isEditMode}) this.classList.add('editing')"
+          onblur="this.classList.remove('editing'); if(${isEditMode}) updateExpense(${index}, 'description', this.innerText)">
         ${expense.description || ""}
       </td>
 
       <td>
-        <button class="delete-btn" onclick="deleteExpense(${index})">×</button>
+        <button class="delete-btn ${!isEditMode ? "hidden-delete" : ""}" onclick="deleteExpense(${index})">×</button>
       </td>
     `;
 
@@ -475,23 +654,22 @@ filtered.sort((a, b) => {
     trendSection.style.display = "block";
   }
 
-  document.getElementById("total").textContent = formatCurrency(total);
+  document.getElementById("total").textContent = formatCurrency(
+    savedFiltered.reduce((sum, exp) => sum + exp.amount, 0)
+  );
   updateCategoryTotals();
   renderChart();
   renderPieChart();
-}
 
-function getCategoryTotals() {
-  const totals = {};
+  const startDisplay = filtered.length === 0 ? 0 : startIndex + 1;
+  const endDisplay = filtered.length === 0 ? 0 : Math.min(endIndex, filtered.length);
 
-  expenses.forEach(exp => {
-    if (!totals[exp.category]) {
-      totals[exp.category] = 0;
-    }
-    totals[exp.category] += exp.amount;
-  });
+  if (pageIndicator) {
+    pageIndicator.textContent = `${startDisplay}-${endDisplay} of ${filtered.length}`;
+  }
 
-  return totals;
+  if (prevPageBtn) prevPageBtn.disabled = currentPage === 1;
+  if (nextPageBtn) nextPageBtn.disabled = endDisplay >= filtered.length || filtered.length === 0;
 }
 
 function getSortedCategoryEntries() {
@@ -503,10 +681,8 @@ function getSortedCategoryEntries() {
 
   let entries = Object.entries(totals);
 
-  // sort highest to lowest
   entries.sort((a, b) => b[1] - a[1]);
 
-  // if filtered, move selected category to the front
   if (currentFilter !== "All") {
     const selectedIndex = entries.findIndex(([category]) => category === currentFilter);
 
@@ -658,11 +834,17 @@ function formatCurrency(amount) {
 }
 
 async function deleteExpense(index) {
+  if (isEditMode) {
+    draftExpenses.splice(index, 1);
+    renderExpenses();
+    return;
+  }
+
   try {
     const expenseId = expenses[index].id;
-
     await deleteExpenseFromDatabase(expenseId);
     expenses.splice(index, 1);
+    draftExpenses = cloneExpenses(expenses);
     renderExpenses();
   } catch (error) {
     console.error("Delete failed:", error);
@@ -674,10 +856,11 @@ function isValidDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
   const [year, month, day] = value.split("-").map(Number);
+  const today = getTodayLocalDate();
 
-  if (year > 2026) return false;
   if (month < 1 || month > 12) return false;
   if (day < 1 || day > 31) return false;
+  if (value > today) return false;
 
   const date = new Date(value);
 
@@ -697,45 +880,41 @@ function placeCursorAtEnd(el) {
   sel.addRange(range);
 }
 
-async function updateExpense(index, field, value, el = null) {
+function updateExpense(index, field, value, el = null) {
+  if (!isEditMode) return;
+
+  const targetExpenses = draftExpenses;
   value = value.trim();
 
   if (field === "date") {
     const trimmed = value;
 
-    if (!/^\d{0,4}(-\d{0,2}){0,2}$/.test(trimmed)) {
-      if (el) el.innerText = expenses[index].date || "";
+    const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+    if (!match) {
+      if (el) el.innerText = formatDateDisplay(targetExpenses[index].date || "");
       return;
     }
 
-    if (trimmed.length === 10 && !isValidDate(trimmed)) {
-      expenses[index].dateError = "Invalid calendar date";
+    const [, month, day, year] = match;
+    const isoDate = `${year}-${month}-${day}`;
 
-      if (el) {
-        el.innerText = expenses[index].date || "";
-      }
-
+    if (!isValidDate(isoDate)) {
+      targetExpenses[index].dateError = "Invalid calendar date";
+      if (el) el.innerText = formatDateDisplay(targetExpenses[index].date || "");
       renderExpenses();
       return;
     }
 
-    expenses[index].dateError = "";
-    expenses[index].date = trimmed;
-
-    try {
-      await updateExpenseInDatabase(expenses[index]);
-      renderExpenses();
-    } catch (error) {
-      console.error("Update failed:", error);
-      alert("Failed to update expense in database");
-    }
-
+    targetExpenses[index].dateError = "";
+    targetExpenses[index].date = isoDate;
+    renderExpenses();
     return;
   }
 
   if (field === "amount") {
     const elValue = value.trim();
-    const previousValue = expenses[index].amount.toString();
+    const previousValue = targetExpenses[index].amount.toString();
 
     if (hasInvalidLeadingZero(elValue)) {
       if (el) el.innerText = previousValue;
@@ -756,40 +935,23 @@ async function updateExpense(index, field, value, el = null) {
       return;
     }
 
-    expenses[index].amount = numericValue;
+    targetExpenses[index].amount = numericValue;
 
     if (el) {
       el.innerText = String(numericValue);
     }
 
-    try {
-      await updateExpenseInDatabase(expenses[index]);
-      renderExpenses();
-    } catch (error) {
-      console.error("Update failed:", error);
-      alert("Failed to update expense in database");
-    }
-
+    renderExpenses();
     return;
   }
 
-  expenses[index][field] = value;
-
-  try {
-    await updateExpenseInDatabase(expenses[index]);
-    renderExpenses();
-  } catch (error) {
-    console.error("Update failed:", error);
-    alert("Failed to update expense in database");
-  }
+  targetExpenses[index][field] = value;
+  renderExpenses();
 }
 
 function updateTotalsOnly() {
-  let total = 0;
-
-  expenses.forEach(exp => {
-    total += exp.amount;
-  });
+  const filtered = getFilteredExpenses(expenses, false);
+  const total = filtered.reduce((sum, exp) => sum + exp.amount, 0);
 
   document.getElementById("total").textContent = formatCurrency(total);
 
@@ -951,12 +1113,26 @@ function setTodayDate() {
 }
 
 function resetDashboardView() {
-  // reset table controls
   currentFilter = "All";
   currentSort = "date-desc";
   currentMonthFilter = "All";
+  currentSearch = "";
+  pendingSearch = "";
+  currentPage = 1;
+  draftExpenses = cloneExpenses(expenses);
+  isEditMode = false;
 
-  // reset filter buttons
+  if (expenseSearchInput) {
+    expenseSearchInput.value = "";
+  }
+
+  if (searchIconBtn) {
+    searchIconBtn.disabled = true;
+  }
+
+  editTableBtn.textContent = "Edit";
+  cancelTableBtn.classList.add("inactive");
+
   document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.classList.remove("active");
     if (btn.dataset.category === "All") {
@@ -964,7 +1140,6 @@ function resetDashboardView() {
     }
   });
 
-  // reset sort + month controls
   const sortSelect = document.getElementById("sort-select");
   if (sortSelect) {
     sortSelect.value = "date-desc";
@@ -975,7 +1150,6 @@ function resetDashboardView() {
     syncMonthFilterState();
   }
 
-  // reset form inputs
   expenseNameInput.value = "";
   amountInput.value = "";
   descInput.value = "";
@@ -1019,6 +1193,13 @@ function handleHeaderFade() {
 
 window.addEventListener("scroll", handleHeaderFade);
 handleHeaderFade();
+
+cancelTableBtn.classList.add("inactive");
+editTableBtn.textContent = "Edit";
+
+if (searchIconBtn) {
+  searchIconBtn.disabled = true;
+}
 
 setTodayDate();
 syncMonthFilterState();
