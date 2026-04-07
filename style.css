@@ -42,12 +42,25 @@ body {
     background: #111;
     padding-top: 14px;
     padding-bottom: 20px;
-    padding-left: 20px;
-    padding-right: 20px;
+    padding-left: 40px;
+    padding-right: 40px;
     border-bottom: 1px solid #262626;
     display: flex;
     justify-content: space-between;
     align-items: center;
+
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+
+    opacity: 1;
+    transition: opacity 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.header-full.scrolled {
+    opacity: 0.82;
+    background: rgba(17, 17, 17, 0.94);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
 }
 
 .header-full .logo {
@@ -207,15 +220,6 @@ body {
     display: flex;
     flex-direction: column;
 }
-
-/*.input-row {
-    display: grid;
-    grid-template-columns: 1.74fr 0.98fr 1.66fr 0.2fr;
-    column-gap: 8px;
-    align-items: start;
-    gap: 6px;
-    padding-bottom: 6px;
-}*/
 
 .input-row {
     display: grid;
@@ -421,24 +425,6 @@ input[type="date"].has-value {
     border-bottom: 1px solid #ddd;
 }
 
-/*#expense-table th:nth-child(1),
-#expense-table td:nth-child(1) { width: 38%; }
-
-#expense-table th:nth-child(2),
-#expense-table td:nth-child(2) { width: 21.5%; }
-
-#expense-table th:nth-child(3),
-#expense-table td:nth-child(3) {
-    width: 36%;
-    padding: 0 12px;
-}
-
-#expense-table th:nth-child(4),
-#expense-table td:nth-child(4) {
-    width: 28px;
-    padding: 0;
-}*/
-
 #expense-table th {
     text-align: left;
     font-size: 15px;
@@ -547,41 +533,6 @@ input[type="date"].has-value {
     display: inline-block;
     min-width: 60px;
 }
-
-/*.editable:hover {
-    position: relative;
-    z-index: 2;
-
-    color: #262626 !important;
-
-    border: 1px solid transparent;
-    border-radius: 2px;
-
-    padding: 4px 6px;
-
-    outline: none;
-
-    display: inline-block;
-    width: auto;
-}
-
-.editable:focus {
-    position: relative;
-    z-index: 2;
-
-    background: #fafafa;
-    color: #0a0a0a;
-
-    border: 1px solid #262626;
-    border-radius: 2px;
-
-    padding: 4px 6px;
-
-    outline: none;
-
-    display: inline-block;
-    width: auto;
-}*/
 
 .table-section .editable {
     color: #666;
@@ -933,8 +884,8 @@ button:active {
 /* GRID LAYOUT */
 .summary-grid {
     display: grid;
-    grid-template-columns: 1.2fr 1fr;
-    gap: 50px;
+    grid-template-columns: minmax(0, 0.88fr) minmax(0, 1.12fr);
+    gap: 34px;
     align-items: start;
 }
 
@@ -943,6 +894,8 @@ button:active {
     display: flex;
     flex-direction: column;
     gap: 16px;
+    width: 100%;
+    max-width: 520px;
 }
 
 /* TOTAL CARD */
@@ -1000,5 +953,10 @@ button:active {
 }
 
 #pieChart {
-    max-width: 100%;
+    width: 100% !important;
+    max-width: 520px;
+    aspect-ratio: 1 / 1;
+    height: auto !important;
+    display: block;
+    margin: 0 auto;
 }

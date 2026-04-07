@@ -1,4 +1,5 @@
 let expenses = [];
+const API_BASE = "";
 let categoryChart = null;
 let pieChart = null;
 let currentFilter = "All";
@@ -19,6 +20,76 @@ const descError = document.getElementById("desc-error");
 const descCounter = document.getElementById("desc-counter");
 const monthFilterInput = document.getElementById("month-filter");
 const clearMonthBtn = document.getElementById("clear-month");
+
+async function loadExpenses() {
+  try {
+    const response = await fetch(`${API_BASE}/expenses`);
+    const data = await response.json();
+
+    expenses = data.map(exp => ({
+      ...exp,
+      dateError: ""
+    }));
+
+    renderExpenses();
+  } catch (error) {
+    console.error("Failed to load expenses:", error);
+  }
+}
+
+function buildExpensePayload(expense) {
+  return {
+    expenseName: expense.expenseName,
+    category: expense.category,
+    amount: Number(expense.amount),
+    date: expense.date,
+    description: expense.description
+  };
+}
+
+async function createExpenseInDatabase(expense) {
+  const response = await fetch(`${API_BASE}/expenses`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buildExpensePayload(expense))
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to create expense");
+  }
+
+  return await response.json();
+}
+
+async function updateExpenseInDatabase(expense) {
+  const response = await fetch(`${API_BASE}/expenses/${expense.id}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(buildExpensePayload(expense))
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to update expense");
+  }
+
+  return await response.json();
+}
+
+async function deleteExpenseFromDatabase(id) {
+  const response = await fetch(`${API_BASE}/expenses/${id}`, {
+    method: "DELETE"
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete expense");
+  }
+
+  return await response.json();
+}
 
 // Event listeners
 addBtn.addEventListener("click", addExpense);
@@ -51,21 +122,20 @@ amountInput.addEventListener("input", () => {
 });
 
 descInput.addEventListener("input", () => {
-    descInput.classList.remove("error");
-    
-    const length = descInput.value.length;
-    descCounter.textContent = `${length}/70`;
-  
-    if (length >= 70) {
-      descError.textContent = "Max 70 characters";
-    } else {
-      descError.textContent = "";
-    }
+  descInput.classList.remove("error");
+
+  const length = descInput.value.length;
+  descCounter.textContent = `${length}/70`;
+
+  if (length >= 70) {
+    descError.textContent = "Max 70 characters";
+  } else {
+    descError.textContent = "";
+  }
 });
 
 document.querySelectorAll(".filter-btn").forEach(btn => {
   btn.addEventListener("click", () => {
-
     document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
 
@@ -93,8 +163,16 @@ clearMonthBtn.addEventListener("click", () => {
   renderExpenses();
 });
 
+function getTodayLocalDate() {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .split("T")[0];
+}
+
 dateInput.addEventListener("input", () => {
   const value = dateInput.value;
+  const today = getTodayLocalDate();
 
   dateError.textContent = "";
   dateInput.classList.remove("error");
@@ -111,14 +189,6 @@ dateInput.addEventListener("input", () => {
     return;
   }
 
-  const [year] = value.split("-").map(Number);
-
-  if (year > 2026) {
-    dateError.textContent = "Year cannot be greater than 2026";
-    dateInput.classList.add("error");
-    return;
-  }
-
   const date = new Date(value);
 
   if (
@@ -131,6 +201,12 @@ dateInput.addEventListener("input", () => {
     return;
   }
 
+  if (value > today) {
+    dateError.textContent = "Date cannot be after today";
+    dateInput.classList.add("error");
+    return;
+  }
+
   dateError.textContent = "";
   dateInput.classList.remove("error");
 });
@@ -139,7 +215,7 @@ function hasInvalidLeadingZero(value) {
   return /^0\d/.test(value.trim());
 }
 
-function addExpense() {
+async function addExpense() {
   const expenseName = expenseNameInput.value.trim();
   const amountRaw = amountInput.value;
   const amount = amountRaw === "" ? null : Number(amountRaw);
@@ -157,7 +233,7 @@ function addExpense() {
   // NAME validation
   if (!expenseName) {
     expenseNameError.textContent = "Please enter an expense name";
-    expenseNameInput.classList.add("error"); 
+    expenseNameInput.classList.add("error");
     hasError = true;
   } else {
     expenseNameInput.classList.remove("error");
@@ -187,7 +263,7 @@ function addExpense() {
   // DATE validation
   if (dateInput.value === "" || dateInput.value == null) {
     dateError.textContent = "Please select a date";
-    dateInput.classList.add("error"); 
+    dateInput.classList.add("error");
     hasError = true;
   } else {
     dateInput.classList.remove("error");
@@ -208,9 +284,22 @@ function addExpense() {
 
   if (hasError) return;
 
-  expenses.push({ expenseName, amount, category, date, description, dateError: "" });
+  try {
+    const newExpense = await createExpenseInDatabase({
+      expenseName,
+      amount,
+      category,
+      date,
+      description
+    });
 
-  renderExpenses();
+    expenses.push({ ...newExpense, dateError: "" });
+    renderExpenses();
+  } catch (error) {
+    console.error("Create failed:", error);
+    alert("Failed to save expense to database");
+    return;
+  }
 
   // Clear inputs
   expenseNameInput.value = "";
@@ -237,23 +326,21 @@ function validateAmountLive() {
   if (isNaN(amount)) {
     helper.textContent = "Please enter a valid number";
     helper.classList.add("error");
-    amountInput.classList.add("error"); 
+    amountInput.classList.add("error");
   } else if (amount <= 0) {
     helper.textContent = "Amount must be greater than 0";
     helper.classList.add("error");
     amountInput.classList.add("error");
   } else {
-    amountInput.classList.remove("error"); 
+    amountInput.classList.remove("error");
   }
 }
 
 function renderExpenses() {
   const body = document.getElementById("expense-body");
-
   body.innerHTML = "";
 
-  // APPLY FILTER + SORT
-let filtered = [...expenses];
+  let filtered = [...expenses];
 
 // MONTH FILTER
 if (currentMonthFilter !== "All") {
@@ -289,47 +376,47 @@ filtered.sort((a, b) => {
   }
 });
 
-if (expenses.length === 0) {
-  body.innerHTML = `
-    <tr>
-      <td colspan="6" class="empty-state-cell">
-        No expenses yet
-      </td>
-    </tr>
-  `;
+  if (expenses.length === 0) {
+    body.innerHTML = `
+      <tr>
+        <td colspan="6" class="empty-state-cell">
+          No expenses yet
+        </td>
+      </tr>
+    `;
 
-  document.getElementById("total").textContent = formatCurrency(0);
-  document.getElementById("category-totals").innerHTML = "";
+    document.getElementById("total").textContent = formatCurrency(0);
+    document.getElementById("category-totals").innerHTML = "";
 
-  if (pieChart) {
-    pieChart.destroy();
-    pieChart = null;
+    if (pieChart) {
+      pieChart.destroy();
+      pieChart = null;
+    }
+
+    if (categoryChart) {
+      categoryChart.destroy();
+      categoryChart = null;
+    }
+
+    const trendSection = document.querySelector(".trend-section");
+    if (trendSection) {
+      trendSection.style.display = "none";
+    }
+
+    return;
   }
 
-  if (categoryChart) {
-    categoryChart.destroy();
-    categoryChart = null;
+  if (filtered.length === 0) {
+    body.innerHTML = `
+      <tr>
+        <td colspan="6" class="empty-state-cell">
+          No expenses found for this filter
+        </td>
+      </tr>
+    `;
+
+    return;
   }
-
-  const trendSection = document.querySelector(".trend-section");
-if (trendSection) {
-  trendSection.style.display = "none";
-}
-
-  return;
-}
-
-if (filtered.length === 0) {
-  body.innerHTML = `
-    <tr>
-      <td colspan="6" class="empty-state-cell">
-        No expenses found for this filter
-      </td>
-    </tr>
-  `;
-
-  return;
-}
 
   let total = 0;
 
@@ -365,8 +452,8 @@ if (filtered.length === 0) {
         </select>
       </td>
 
-      <td class="editable date-cell" contenteditable="true" 
-        onblur="updateExpense(${index}, 'date', this.innerText, this)"> ${expense.date || ""}
+      <td class="editable date-cell" contenteditable="true"
+        onblur="updateExpense(${index}, 'date', this.innerText, this)">${expense.date || ""}
       </td>
 
       <td class="editable"
@@ -383,10 +470,10 @@ if (filtered.length === 0) {
     body.appendChild(row);
   });
 
-const trendSection = document.querySelector(".trend-section");
-if (trendSection) {
-  trendSection.style.display = "block";
-}
+  const trendSection = document.querySelector(".trend-section");
+  if (trendSection) {
+    trendSection.style.display = "block";
+  }
 
   document.getElementById("total").textContent = formatCurrency(total);
   updateCategoryTotals();
@@ -395,17 +482,17 @@ if (trendSection) {
 }
 
 function getCategoryTotals() {
-    const totals = {};
-  
-    expenses.forEach(exp => {
-      if (!totals[exp.category]) {
-        totals[exp.category] = 0;
-      }
-      totals[exp.category] += exp.amount;
-    });
-  
-    return totals;
-  }
+  const totals = {};
+
+  expenses.forEach(exp => {
+    if (!totals[exp.category]) {
+      totals[exp.category] = 0;
+    }
+    totals[exp.category] += exp.amount;
+  });
+
+  return totals;
+}
 
 function getSortedCategoryEntries() {
   const totals = {};
@@ -458,7 +545,7 @@ function updateCategoryTotals() {
     container.appendChild(div);
   });
 }
-  
+
 function renderPieChart() {
   const entries = getSortedCategoryEntries();
 
@@ -503,7 +590,7 @@ function renderPieChart() {
         const { ctx } = chart;
         const meta = chart.getDatasetMeta(0);
         const total = data.reduce((sum, value) => sum + value, 0);
-  
+
         const rootStyles = getComputedStyle(document.documentElement);
         const pieLabelColor = rootStyles.getPropertyValue("--pie-label-color").trim() || "#ffffff";
         const pieLabelFontFamily = rootStyles.getPropertyValue("--pie-label-font-family").trim() || "Inter, Arial, sans-serif";
@@ -522,16 +609,15 @@ function renderPieChart() {
 
           const fontSize = percentage < 8 ? pieLabelFontSizeSmall : pieLabelFontSize;
           ctx.font = `${pieLabelFontWeight} ${fontSize}px ${pieLabelFontFamily}`;
-  
-          // place text slightly inward so it fits better
+
           const angle = (slice.startAngle + slice.endAngle) / 2;
           const radius = slice.outerRadius * 0.62;
           const x = slice.x + Math.cos(angle) * radius;
           const y = slice.y + Math.sin(angle) * radius;
-  
+
           ctx.fillText(`${percentage.toFixed(0)}%`, x, y);
         });
-  
+
         ctx.restore();
       }
     }],
@@ -571,28 +657,36 @@ function formatCurrency(amount) {
   });
 }
 
-function deleteExpense(index) {
-  expenses.splice(index, 1);
-  renderExpenses();
-}
-  
-  function isValidDate(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+async function deleteExpense(index) {
+  try {
+    const expenseId = expenses[index].id;
 
-    const [year, month, day] = value.split("-").map(Number);
-  
-    if (year > 2026) return false;
-    if (month < 1 || month > 12) return false;
-    if (day < 1 || day > 31) return false;
-  
-    const date = new Date(value);
-  
-    return (
-      date.getFullYear() === year &&
-      date.getMonth() + 1 === month &&
-      date.getDate() === day
-    );
+    await deleteExpenseFromDatabase(expenseId);
+    expenses.splice(index, 1);
+    renderExpenses();
+  } catch (error) {
+    console.error("Delete failed:", error);
+    alert("Failed to delete expense from database");
   }
+}
+
+function isValidDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+
+  if (year > 2026) return false;
+  if (month < 1 || month > 12) return false;
+  if (day < 1 || day > 31) return false;
+
+  const date = new Date(value);
+
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() + 1 === month &&
+    date.getDate() === day
+  );
+}
 
 function placeCursorAtEnd(el) {
   const range = document.createRange();
@@ -603,72 +697,91 @@ function placeCursorAtEnd(el) {
   sel.addRange(range);
 }
 
-function updateExpense(index, field, value, el = null) {
+async function updateExpense(index, field, value, el = null) {
   value = value.trim();
 
   if (field === "date") {
     const trimmed = value;
-  
+
     if (!/^\d{0,4}(-\d{0,2}){0,2}$/.test(trimmed)) {
       if (el) el.innerText = expenses[index].date || "";
       return;
     }
-  
+
     if (trimmed.length === 10 && !isValidDate(trimmed)) {
       expenses[index].dateError = "Invalid calendar date";
-  
+
       if (el) {
         el.innerText = expenses[index].date || "";
       }
-  
+
       renderExpenses();
       return;
     }
-  
-    // valid date
+
     expenses[index].dateError = "";
     expenses[index].date = trimmed;
-  
-    renderExpenses();
+
+    try {
+      await updateExpenseInDatabase(expenses[index]);
+      renderExpenses();
+    } catch (error) {
+      console.error("Update failed:", error);
+      alert("Failed to update expense in database");
+    }
+
     return;
   }
 
   if (field === "amount") {
     const elValue = value.trim();
     const previousValue = expenses[index].amount.toString();
-  
+
     if (hasInvalidLeadingZero(elValue)) {
       if (el) el.innerText = previousValue;
       return;
     }
-  
+
     const isValid = /^\d+(\.\d{1,2})?$/.test(elValue);
-  
+
     if (!isValid) {
       if (el) el.innerText = previousValue;
       return;
     }
-  
+
     const numericValue = Number(elValue);
-  
+
     if (numericValue <= 0 || isNaN(numericValue)) {
       if (el) el.innerText = previousValue;
       return;
     }
-  
+
     expenses[index].amount = numericValue;
-  
+
     if (el) {
       el.innerText = String(numericValue);
     }
-  
-    renderExpenses();
+
+    try {
+      await updateExpenseInDatabase(expenses[index]);
+      renderExpenses();
+    } catch (error) {
+      console.error("Update failed:", error);
+      alert("Failed to update expense in database");
+    }
+
     return;
   }
 
   expenses[index][field] = value;
 
-  renderExpenses();
+  try {
+    await updateExpenseInDatabase(expenses[index]);
+    renderExpenses();
+  } catch (error) {
+    console.error("Update failed:", error);
+    alert("Failed to update expense in database");
+  }
 }
 
 function updateTotalsOnly() {
@@ -683,7 +796,7 @@ function updateTotalsOnly() {
   updateCategoryTotals();
   renderChart();
 }
-  
+
 function renderChart() {
   const monthlyTotals = {};
 
@@ -821,7 +934,7 @@ profile.addEventListener("mouseleave", () => {
 });
 
 function logout() {
-    alert("Logged out");
+  alert("Logged out");
 }
 
 document.addEventListener("focusout", (e) => {
@@ -831,11 +944,82 @@ document.addEventListener("focusout", (e) => {
 });
 
 function setTodayDate() {
-  const today = new Date().toISOString().split("T")[0];
+  const today = getTodayLocalDate();
+  dateInput.max = today;
   dateInput.value = today;
   dateInput.classList.add("has-value");
 }
 
+function resetDashboardView() {
+  // reset table controls
+  currentFilter = "All";
+  currentSort = "date-desc";
+  currentMonthFilter = "All";
+
+  // reset filter buttons
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.classList.remove("active");
+    if (btn.dataset.category === "All") {
+      btn.classList.add("active");
+    }
+  });
+
+  // reset sort + month controls
+  const sortSelect = document.getElementById("sort-select");
+  if (sortSelect) {
+    sortSelect.value = "date-desc";
+  }
+
+  if (monthFilterInput) {
+    monthFilterInput.value = "";
+    syncMonthFilterState();
+  }
+
+  // reset form inputs
+  expenseNameInput.value = "";
+  amountInput.value = "";
+  descInput.value = "";
+  descCounter.textContent = "0/70";
+
+  expenseNameError.textContent = "";
+  amountError.textContent = "";
+  dateError.textContent = "";
+  descError.textContent = "";
+
+  expenseNameInput.classList.remove("error");
+  amountInput.classList.remove("error");
+  dateInput.classList.remove("error");
+  descInput.classList.remove("error");
+
+  const amountHelper = document.getElementById("amount-helper");
+  if (amountHelper) {
+    amountHelper.textContent = "";
+    amountHelper.classList.remove("error");
+  }
+
+  setTodayDate();
+  renderExpenses();
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+function handleHeaderFade() {
+  const header = document.querySelector(".header-full");
+  if (!header) return;
+
+  if (window.scrollY > 12) {
+    header.classList.add("scrolled");
+  } else {
+    header.classList.remove("scrolled");
+  }
+}
+
+window.addEventListener("scroll", handleHeaderFade);
+handleHeaderFade();
+
 setTodayDate();
 syncMonthFilterState();
-renderExpenses();
+loadExpenses();
