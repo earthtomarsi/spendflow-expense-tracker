@@ -1,3 +1,6 @@
 .DS_Store
 node_modules/
+.envnode_modules
 .env
+client_old_broken/
+spendflow-expense-tracker/
