@@ -19,6 +19,7 @@ let newlyAddedExpenseId = null;
 let highlightTimeoutId = null;
 let appToastTimeoutId = null;
 let activeEditCell = null;
+let isLoggedIn = true;
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -165,9 +166,26 @@ function escapeHtml(value) {
 
 function showStatus(message, type = "error") {
   if (!statusMessage) return;
-  statusMessage.textContent = message;
+
+  statusMessage.innerHTML = `
+    <span class="status-message-text">${escapeHtml(message)}</span>
+    <button
+      class="status-close-btn"
+      type="button"
+      aria-label="Dismiss message"
+    >
+      ×
+    </button>
+  `;
+
   statusMessage.className = `status-message ${type}`;
   statusMessage.hidden = false;
+
+  const closeBtn = statusMessage.querySelector(".status-close-btn");
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", clearStatus);
+  }
 }
 
 function clearStatus() {
@@ -175,6 +193,43 @@ function clearStatus() {
   statusMessage.hidden = true;
   statusMessage.textContent = "";
   statusMessage.className = "status-message";
+}
+
+function renderAuthState() {
+  const profile = document.querySelector(".profile");
+  const dropdown = document.querySelector(".dropdown");
+  const username = document.querySelector(".username");
+  const arrow = document.querySelector(".arrow");
+  const profilePic = document.querySelector(".profile-pic");
+
+  if (!profile || !usernameWrapper) return;
+
+  if (isLoggedIn) {
+    profile.classList.remove("logged-out");
+    usernameWrapper.classList.remove("login-header-btn");
+    usernameWrapper.setAttribute("aria-expanded", "false");
+    usernameWrapper.setAttribute("role", "button");
+    usernameWrapper.setAttribute("tabindex", "0");
+
+    if (username) username.textContent = "Marsi";
+    if (arrow) arrow.hidden = false;
+    if (dropdown) dropdown.hidden = false;
+    if (profilePic) profilePic.hidden = false;
+
+    return;
+  }
+
+  profile.classList.add("logged-out");
+  usernameWrapper.classList.remove("active");
+  usernameWrapper.classList.add("login-header-btn");
+  usernameWrapper.setAttribute("aria-expanded", "false");
+  usernameWrapper.setAttribute("role", "button");
+  usernameWrapper.setAttribute("tabindex", "0");
+
+  if (username) username.textContent = "Login";
+  if (arrow) arrow.hidden = true;
+  if (dropdown) dropdown.hidden = true;
+  if (profilePic) profilePic.hidden = true;
 }
 
 function showAppToast(message) {
@@ -1340,7 +1395,10 @@ function resetDashboardView() {
 }
 
 function logout() {
-  showStatus("Logged out", "success");
+  isLoggedIn = false;
+  clearStatus();
+  renderAuthState();
+  showAppToast("Logged out successfully.");
 }
 
 // ---------- Table event delegation ----------
@@ -1412,6 +1470,17 @@ function handleTableClick(event) {
     const index = Number(deleteButton.dataset.index);
     deleteExpense(index);
   }
+}
+
+function closeUsernameMenuOnOutsideClick(event) {
+  if (!usernameWrapper) return;
+
+  const profile = document.querySelector(".profile");
+
+  if (profile && profile.contains(event.target)) return;
+
+  usernameWrapper.classList.remove("active");
+  usernameWrapper.setAttribute("aria-expanded", "false");
 }
 
 // ---------- Static event binding ----------
@@ -1627,11 +1696,16 @@ function bindEvents() {
 
   if (usernameWrapper) {
     usernameWrapper.addEventListener("click", () => {
+      if (!isLoggedIn) {
+        showAppToast("Login flow is not connected in this preview.");
+        return;
+      }
+  
       const expanded = usernameWrapper.getAttribute("aria-expanded") === "true";
       usernameWrapper.setAttribute("aria-expanded", String(!expanded));
       usernameWrapper.classList.toggle("active");
     });
-
+  
     usernameWrapper.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -1659,6 +1733,8 @@ function bindEvents() {
     }
   });
 
+  document.addEventListener("click", closeUsernameMenuOnOutsideClick);
+
   window.addEventListener("scroll", handleHeaderFade);
 }
 
@@ -1685,4 +1761,5 @@ if (searchIconBtn) {
 
 setTodayDate();
 syncMonthFilterState();
+renderAuthState();
 loadExpenses();

@@ -1472,3 +1472,111 @@ button.hidden-delete {
 button.hidden-edit {
     display: none !important;
 }
+
+/* Full-width status/error banner */
+.status-message {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 12px 40px;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+}
+
+.status-message[hidden] {
+    display: none !important;
+}
+
+@media (max-width: 640px) {
+    .status-message {
+        padding: 12px 20px;
+    }
+}
+
+/* Status banner close button */
+.status-message {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.status-message-text {
+    flex: 1;
+}
+
+.status-close-btn {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none;
+    border-radius: 5px;
+    background: transparent !important;
+    color: currentColor;
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 300;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.status-message.error .status-close-btn:hover {
+    background: rgba(180, 35, 24, 0.10) !important;
+    color: #7a1b14;
+}
+
+.status-message.success .status-close-btn:hover {
+    background: rgba(22, 101, 52, 0.10) !important;
+    color: #14532d;
+}
+
+.status-close-btn:focus,
+.status-close-btn:focus-visible {
+    outline: none;
+}
+
+/* Logged-out header login button */
+.profile.logged-out {
+    gap: 0;
+}
+
+.profile.logged-out .dropdown {
+    display: none !important;
+}
+
+.login-header-btn {
+    min-width: 86px;
+    height: 40px;
+    padding: 0 18px;
+    border-radius: 8px;
+    background: #0a0a0a;
+    color: #fafafa;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.login-header-btn .username {
+    color: #fafafa !important;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.login-header-btn:hover {
+    background: var(--accent-green);
+}
+
+.login-header-btn:active {
+    transform: scale(0.98);
+}
+
+.login-header-btn:focus-visible {
+    outline: 2px solid var(--accent-green);
+    outline-offset: 2px;
+}
