@@ -12,6 +12,9 @@ let pendingSearch = "";
 let currentPage = 1;
 const rowsPerPage = 10;
 let isEditMode = false;
+let newlyAddedExpenseId = null;
+let highlightTimeoutId = null;
+let appToastTimeoutId = null;
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -40,6 +43,7 @@ const brandHome = document.getElementById("brand-home");
 const usernameWrapper = document.querySelector(".username-wrapper");
 const logoutBtn = document.getElementById("logout-btn");
 const trendSection = document.querySelector(".trend-section");
+const tableSection = document.querySelector(".table-section");
 
 // ---------- Helpers ----------
 function cloneExpenses(expenseList) {
@@ -97,6 +101,41 @@ function clearStatus() {
   statusMessage.className = "status-message";
 }
 
+function showAppToast(message) {
+  const toast = document.getElementById("app-toast");
+  const messageEl = document.getElementById("app-toast-message");
+
+  if (!toast || !messageEl) return;
+
+  messageEl.textContent = message;
+  toast.hidden = false;
+  toast.classList.add("show");
+
+  if (appToastTimeoutId) {
+    clearTimeout(appToastTimeoutId);
+  }
+
+  appToastTimeoutId = setTimeout(() => {
+    hideAppToast();
+  }, 2600);
+}
+
+function hideAppToast() {
+  const toast = document.getElementById("app-toast");
+  if (!toast) return;
+
+  if (appToastTimeoutId) {
+    clearTimeout(appToastTimeoutId);
+    appToastTimeoutId = null;
+  }
+
+  toast.classList.remove("show");
+
+  setTimeout(() => {
+    toast.hidden = true;
+  }, 180);
+}
+
 function updatePaginationDisplay(totalItems, startIndex = 0, endIndex = 0) {
   if (!pageIndicator || !prevPageBtn || !nextPageBtn) return;
 
@@ -148,6 +187,8 @@ function getFilteredExpenses(sourceExpenses, includeSearch = true) {
 
   filtered.sort((a, b) => {
     switch (currentSort) {
+      case "added-desc":
+        return 0;
       case "amount-asc":
         return a.amount - b.amount;
       case "amount-desc":
@@ -201,10 +242,17 @@ function isValidDate(value) {
 }
 
 function setTodayDate() {
+  if (!dateInput) return;
+
   const today = getTodayLocalDate();
   dateInput.max = today;
   dateInput.value = today;
-  dateInput.classList.add("has-value");
+
+  if (dateInput.value) {
+    dateInput.classList.add("has-value");
+  } else {
+    dateInput.classList.remove("has-value");
+  }
 }
 
 function getSortedCategoryEntries() {
@@ -287,6 +335,11 @@ function createExpenseRow(expense, index) {
   const lockedClass = !isEditMode ? "locked" : "";
   const editableValue = isEditMode ? "true" : "false";
   const categoryOptions = getCategoryOptions(expense.category);
+  const isNewlyAdded = expense.id === newlyAddedExpenseId;
+
+  if (isNewlyAdded) {
+    row.classList.add("new-expense-row");
+  }
 
   row.innerHTML = `
     <td
@@ -445,10 +498,12 @@ async function loadExpenses() {
 
     const data = await response.json();
 
-    expenses = data.map(exp => ({
-      ...exp,
-      dateError: ""
-    }));
+    expenses = data
+      .map(exp => ({
+        ...exp,
+        dateError: ""
+      }))
+      .sort((a, b) => b.id - a.id);
 
     draftExpenses = cloneExpenses(expenses);
     clearStatus();
@@ -887,11 +942,33 @@ async function addExpense() {
     });
 
     const normalized = { ...newExpense, dateError: "" };
-    expenses.push(normalized);
+    expenses.unshift(normalized);
     draftExpenses = cloneExpenses(expenses);
     currentPage = 1;
+
+    newlyAddedExpenseId = normalized.id;
+
     clearStatus();
     renderExpenses();
+
+    if (tableSection) {
+      tableSection.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+
+    if (highlightTimeoutId) {
+      clearTimeout(highlightTimeoutId);
+    }
+
+    highlightTimeoutId = setTimeout(() => {
+      newlyAddedExpenseId = null;
+      renderExpenses();
+    }, 2800);
+
+    showAppToast("Expense added successfully.");
+
   } catch (error) {
     console.error("Create failed:", error);
     showStatus("Failed to save expense. Please check the server and try again.", "error");
@@ -920,6 +997,7 @@ async function deleteExpense(index) {
     draftExpenses = cloneExpenses(expenses);
     clearStatus();
     renderExpenses();
+    showAppToast("Expense deleted successfully.");
   } catch (error) {
     console.error("Delete failed:", error);
     showStatus("Failed to delete expense from the database.", "error");
@@ -994,7 +1072,7 @@ function updateExpense(index, field, value, el = null) {
 
 function resetDashboardView() {
   currentFilter = "All";
-  currentSort = "date-desc";
+  currentSort = "added-desc";
   currentMonthFilter = "All";
   currentSearch = "";
   pendingSearch = "";
@@ -1022,7 +1100,7 @@ function resetDashboardView() {
 
   const sortSelect = document.getElementById("sort-select");
   if (sortSelect) {
-    sortSelect.value = "date-desc";
+    sortSelect.value = "added-desc";
   }
 
   if (monthFilterInput) {
@@ -1148,6 +1226,11 @@ function bindEvents() {
     }
   });
 
+  const appToastCloseBtn = document.getElementById("app-toast-close");
+if (appToastCloseBtn) {
+  appToastCloseBtn.addEventListener("click", hideAppToast);
+}
+
   document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
@@ -1198,6 +1281,7 @@ function bindEvents() {
       draftExpenses = cloneExpenses(expenses);
       clearStatus();
       renderExpenses();
+      showAppToast("Changes saved successfully.");
     } catch (error) {
       console.error("Save failed:", error);
       showStatus("Failed to save table changes. Please try again.", "error");

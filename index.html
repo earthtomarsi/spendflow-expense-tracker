@@ -124,7 +124,7 @@
           <label for="sort-select">Sort by</label>
           <div class="select-wrapper">
             <select id="sort-select">
-              <option value="date-desc">Date: Newest</option>
+              <option value="added-desc">Date: Most Recent</option>
               <option value="date-asc">Date: Oldest</option>
               <option value="amount-asc">Amount: Low to High</option>
               <option value="amount-desc">Amount: High to Low</option>
@@ -214,6 +214,17 @@
       </div>
     </section>
   </main>
+
+  <div id="app-toast" class="app-toast" aria-live="polite" hidden>
+    <span class="app-toast-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M8.5 12.3l2.3 2.3 4.7-5.2"></path>
+      </svg>
+    </span>
+    <span id="app-toast-message" class="app-toast-message">Expense added successfully.</span>
+    <button id="app-toast-close" class="app-toast-close" type="button" aria-label="Close notification">×</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="script.js"></script>

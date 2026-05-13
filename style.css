@@ -1258,3 +1258,105 @@ button:active {
         gap: 8px;
     }
 }
+
+.app-toast {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 340px;
+    max-width: 460px;
+    padding: 16px 18px;
+    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.16);
+    color: #262626;
+    font-size: 15px;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.app-toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.app-toast-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    color: #16a34a;
+    flex-shrink: 0;
+}
+
+.app-toast-icon svg {
+    width: 22px;
+    height: 22px;
+}
+
+.app-toast-message {
+    flex: 1 1 auto;
+    line-height: 1.35;
+}
+
+.app-toast-close {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    margin-left: 6px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #888;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.app-toast-close:hover {
+    background: #f5f5f5;
+    color: #0a0a0a;
+}
+
+.app-toast-close:focus {
+    outline: none;
+}
+
+@media (max-width: 640px) {
+    .app-toast {
+        right: 16px;
+        left: 16px;
+        bottom: 16px;
+        min-width: 0;
+        max-width: none;
+    }
+}
+
+#expense-table tr.new-expense-row {
+    background: #f0fdf4;
+    box-shadow: inset 0 0 0 1px rgba(46, 204, 113, 0.22);
+}
+
+#expense-table tr.new-expense-row td {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#expense-table tr.new-expense-row td:first-child {
+    border-radius: 8px 0 0 8px;
+}
+
+#expense-table tr.new-expense-row td:last-child {
+    border-radius: 0 8px 8px 0;
+}
