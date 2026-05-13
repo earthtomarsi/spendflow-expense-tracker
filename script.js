@@ -1,6 +1,8 @@
 let expenses = [];
 let draftExpenses = [];
-const API_BASE = "";
+
+const API_BASE = "http://localhost:3000";
+const AUTH_TOKEN = "PASTE_YOUR_CURRENT_JWT_TOKEN_HERE";
 
 let categoryChart = null;
 let pieChart = null;
@@ -11,10 +13,12 @@ let currentSearch = "";
 let pendingSearch = "";
 let currentPage = 1;
 const rowsPerPage = 10;
+const DESCRIPTION_LIMIT = 70;
 let isEditMode = false;
 let newlyAddedExpenseId = null;
 let highlightTimeoutId = null;
 let appToastTimeoutId = null;
+let activeEditCell = null;
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -52,6 +56,78 @@ function cloneExpenses(expenseList) {
 
 function getTableExpenses() {
   return isEditMode ? draftExpenses : expenses;
+}
+
+function normalizeExpense(expense = {}) {
+  const rawAmount =
+    expense.amount ??
+    expense.expense_amount ??
+    expense.expenseAmount ??
+    0;
+
+  const amount = Number(rawAmount);
+
+  const rawDate =
+    expense.date ??
+    expense.expense_date ??
+    expense.expenseDate ??
+    "";
+
+  return {
+    ...expense,
+    id:
+      expense.id ??
+      expense.expense_id ??
+      expense.expenseId ??
+      null,
+    expenseName:
+      expense.expenseName ??
+      expense.expense_name ??
+      expense.expenseTitle ??
+      expense.title ??
+      expense.name ??
+      "",
+    category:
+      expense.category ??
+      expense.expense_category ??
+      expense.expenseCategory ??
+      "Uncategorized",
+    amount: Number.isFinite(amount) ? amount : 0,
+    date: rawDate ? String(rawDate).slice(0, 10) : "",
+    description:
+      expense.description ??
+      expense.expense_description ??
+      expense.expenseDescription ??
+      expense.notes ??
+      "",
+    dateError: expense.dateError ?? ""
+  };
+}
+
+function getExpensesArrayFromResponse(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data.expenses)) return data.expenses;
+  if (Array.isArray(data.data)) return data.data;
+  if (Array.isArray(data.rows)) return data.rows;
+  return [];
+}
+
+function getCreatedExpenseId(responseData) {
+  const createdExpense =
+    responseData?.expense ??
+    responseData?.data ??
+    responseData;
+
+  return (
+    createdExpense?.id ??
+    createdExpense?.expense_id ??
+    createdExpense?.expenseId ??
+    responseData?.id ??
+    responseData?.expense_id ??
+    responseData?.expenseId ??
+    responseData?.insertId ??
+    null
+  );
 }
 
 function buildExpensePayload(expense) {
@@ -181,27 +257,34 @@ function getFilteredExpenses(sourceExpenses, includeSearch = true) {
 
   if (includeSearch && currentSearch) {
     filtered = filtered.filter(exp =>
-      exp.expenseName.toLowerCase().includes(currentSearch)
+      String(exp.expenseName || "").toLowerCase().includes(currentSearch)
     );
   }
 
   filtered.sort((a, b) => {
+    const amountA = Number(a.amount) || 0;
+    const amountB = Number(b.amount) || 0;
+    const nameA = String(a.expenseName || "");
+    const nameB = String(b.expenseName || "");
+    const dateA = a.date ? new Date(`${a.date}T00:00:00`).getTime() : 0;
+    const dateB = b.date ? new Date(`${b.date}T00:00:00`).getTime() : 0;
+
     switch (currentSort) {
       case "added-desc":
-        return 0;
+        return Number(b.id || 0) - Number(a.id || 0);
       case "amount-asc":
-        return a.amount - b.amount;
+        return amountA - amountB;
       case "amount-desc":
-        return b.amount - a.amount;
+        return amountB - amountA;
       case "name-asc":
-        return a.expenseName.localeCompare(b.expenseName);
+        return nameA.localeCompare(nameB);
       case "name-desc":
-        return b.expenseName.localeCompare(a.expenseName);
+        return nameB.localeCompare(nameA);
       case "date-asc":
-        return new Date(a.date) - new Date(b.date);
+        return dateA - dateB;
       case "date-desc":
       default:
-        return new Date(b.date) - new Date(a.date);
+        return dateB - dateA;
     }
   });
 
@@ -232,7 +315,7 @@ function isValidDate(value) {
   if (day < 1 || day > 31) return false;
   if (value > today) return false;
 
-  const date = new Date(value);
+  const date = new Date(`${value}T00:00:00`);
 
   return (
     date.getFullYear() === year &&
@@ -259,7 +342,11 @@ function getSortedCategoryEntries() {
   const totals = {};
 
   expenses.forEach(exp => {
-    totals[exp.category] = (totals[exp.category] || 0) + exp.amount;
+    const category = exp.category || "Uncategorized";
+    const amount = Number(exp.amount);
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+    totals[category] = (totals[category] || 0) + safeAmount;
   });
 
   let entries = Object.entries(totals);
@@ -277,7 +364,10 @@ function getSortedCategoryEntries() {
 }
 
 function formatCurrency(amount) {
-  return amount.toLocaleString("en-US", {
+  const value = Number(amount);
+  const safeAmount = Number.isFinite(value) ? value : 0;
+
+  return safeAmount.toLocaleString("en-US", {
     style: "currency",
     currency: "USD"
   });
@@ -330,6 +420,40 @@ function applyRowTooltips(row, expense) {
   }
 }
 
+function focusEditableCellAtEnd(cell) {
+  if (!cell) return;
+
+  cell.focus();
+
+  const range = document.createRange();
+  const selection = window.getSelection();
+
+  range.selectNodeContents(cell);
+  range.collapse(false);
+
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function startRowEdit(index) {
+  if (!isEditMode) {
+    isEditMode = true;
+    draftExpenses = cloneExpenses(expenses);
+    editTableBtn.textContent = "Save";
+    cancelTableBtn.classList.remove("inactive");
+  }
+
+  renderExpenses();
+
+  requestAnimationFrame(() => {
+    const cell = expenseBody.querySelector(
+      `td[data-field="expenseName"][data-index="${index}"]`
+    );
+
+    focusEditableCellAtEnd(cell);
+  });
+}
+
 function createExpenseRow(expense, index) {
   const row = document.createElement("tr");
   const lockedClass = !isEditMode ? "locked" : "";
@@ -380,8 +504,8 @@ function createExpenseRow(expense, index) {
       ${escapeHtml(formatDateDisplay(expense.date) || "")}
     </td>
 
-    <td
-      class="editable ${lockedClass}"
+   <td
+      class="editable description-cell ${lockedClass}"
       data-field="description"
       data-index="${index}"
       contenteditable="${editableValue}"
@@ -389,16 +513,33 @@ function createExpenseRow(expense, index) {
       ${escapeHtml(expense.description || "")}
     </td>
 
-    <td>
-      <button
-        class="delete-btn ${!isEditMode ? "hidden-delete" : ""}"
-        type="button"
-        data-action="delete"
-        data-index="${index}"
-        aria-label="Delete expense"
-      >
-        ×
-      </button>
+    <td class="actions-cell">
+      <div class="row-actions">
+        <button
+          class="row-icon-btn edit-row-btn ${isEditMode ? "hidden-edit" : ""}"
+          type="button"
+          data-action="edit-row"
+          data-index="${index}"
+          aria-label="Edit expense"
+          title="Edit expense"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"></path>
+            <path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z"></path>
+          </svg>
+        </button>
+
+       <button
+          class="row-icon-btn delete-btn ${!isEditMode ? "hidden-delete" : ""}"
+          type="button"
+          data-action="delete"
+          data-index="${index}"
+          aria-label="Delete expense"
+          title="Delete expense"
+        >
+          ×
+        </button>
+      </div>
     </td>
   `;
 
@@ -427,7 +568,8 @@ async function createExpenseInDatabase(expense) {
   const response = await fetch(`${API_BASE}/expenses`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AUTH_TOKEN}`
     },
     body: JSON.stringify(buildExpensePayload(expense))
   });
@@ -443,13 +585,16 @@ async function updateExpenseInDatabase(expense) {
   const response = await fetch(`${API_BASE}/expenses/${expense.id}`, {
     method: "PUT",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AUTH_TOKEN}`
     },
     body: JSON.stringify(buildExpensePayload(expense))
   });
 
   if (!response.ok) {
-    throw new Error("Failed to update expense");
+    const errorText = await response.text();
+    console.error("Update expense failed:", response.status, errorText);
+    throw new Error(`Failed to update expense: ${response.status}`);
   }
 
   return await response.json();
@@ -457,7 +602,10 @@ async function updateExpenseInDatabase(expense) {
 
 async function deleteExpenseFromDatabase(id) {
   const response = await fetch(`${API_BASE}/expenses/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${AUTH_TOKEN}`
+    }
   });
 
   if (!response.ok) {
@@ -465,6 +613,24 @@ async function deleteExpenseFromDatabase(id) {
   }
 
   return await response.json();
+}
+
+function commitActiveTableCell() {
+  if (!isEditMode) return;
+
+  const cell =
+    document.querySelector("#expense-table td.editing") ||
+    activeEditCell;
+
+  if (!cell || !cell.isConnected || cell.classList.contains("locked")) return;
+
+  const index = Number(cell.dataset.index);
+  const field = cell.dataset.field;
+
+  if (!Number.isInteger(index) || !field) return;
+
+  updateExpense(index, field, cell.innerText, cell);
+  cell.classList.remove("editing");
 }
 
 async function saveDraftChanges() {
@@ -490,20 +656,22 @@ async function saveDraftChanges() {
 
 async function loadExpenses() {
   try {
-    const response = await fetch(`${API_BASE}/expenses`);
+    const response = await fetch(`${API_BASE}/expenses`, {
+      headers: {
+        Authorization: `Bearer ${AUTH_TOKEN}`
+      }
+    });
 
     if (!response.ok) {
       throw new Error("Failed to load expenses");
     }
 
     const data = await response.json();
+    const rawExpenses = getExpensesArrayFromResponse(data);
 
-    expenses = data
-      .map(exp => ({
-        ...exp,
-        dateError: ""
-      }))
-      .sort((a, b) => b.id - a.id);
+    expenses = rawExpenses
+      .map(normalizeExpense)
+      .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
 
     draftExpenses = cloneExpenses(expenses);
     clearStatus();
@@ -641,20 +809,26 @@ function renderChart() {
   const monthlyTotals = {};
 
   expenses.forEach(exp => {
-    if (!exp.date) return;
+    if (!exp.date || !/^\d{4}-\d{2}-\d{2}$/.test(exp.date)) return;
 
-    const date = new Date(exp.date);
-    const monthKey = date.toLocaleString("en-US", {
+    const monthKey = exp.date.slice(0, 7);
+    const amount = Number(exp.amount);
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+    monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + safeAmount;
+  });
+
+  const sorted = Object.entries(monthlyTotals).sort(([a], [b]) => a.localeCompare(b));
+
+  const labels = sorted.map(([monthKey]) => {
+    const [year, month] = monthKey.split("-").map(Number);
+    return new Date(year, month - 1, 1).toLocaleString("en-US", {
       month: "short",
       year: "numeric"
     });
-
-    monthlyTotals[monthKey] = (monthlyTotals[monthKey] || 0) + exp.amount;
   });
 
-  const sorted = Object.entries(monthlyTotals).sort((a, b) => new Date(a[0]) - new Date(b[0]));
-  const labels = sorted.map(item => item[0]);
-  const data = sorted.map(item => item[1]);
+  const data = sorted.map(([, total]) => total);
 
   const average =
     data.length > 0
@@ -802,7 +976,7 @@ function renderExpenses() {
     `;
 
     document.getElementById("total").textContent = formatCurrency(
-      savedFiltered.reduce((sum, exp) => sum + exp.amount, 0)
+      savedFiltered.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
     );
 
     updateCategoryTotals();
@@ -820,7 +994,7 @@ function renderExpenses() {
   });
 
   document.getElementById("total").textContent = formatCurrency(
-    savedFiltered.reduce((sum, exp) => sum + exp.amount, 0)
+    savedFiltered.reduce((sum, exp) => sum + (Number(exp.amount) || 0), 0)
   );
 
   updateCategoryTotals();
@@ -922,7 +1096,7 @@ async function addExpense() {
     descError.textContent = "Please enter a description";
     descInput.classList.add("error");
     hasError = true;
-  } else if (description.length > 70) {
+  } else if (description.length > DESCRIPTION_LIMIT) {
     descError.textContent = "Max 70 characters";
     descInput.classList.add("error");
     hasError = true;
@@ -933,23 +1107,37 @@ async function addExpense() {
   if (hasError) return;
 
   try {
-    const newExpense = await createExpenseInDatabase({
+    const expenseToSave = {
       expenseName,
       amount,
       category,
       date,
       description
-    });
+    };
 
-    const normalized = { ...newExpense, dateError: "" };
-    expenses.unshift(normalized);
-    draftExpenses = cloneExpenses(expenses);
+    const createResponse = await createExpenseInDatabase(expenseToSave);
+    newlyAddedExpenseId = getCreatedExpenseId(createResponse);
     currentPage = 1;
 
-    newlyAddedExpenseId = normalized.id;
+    await loadExpenses();
+
+    if (newlyAddedExpenseId == null) {
+      const matchingExpense = expenses.find(exp =>
+        exp.expenseName === expenseName &&
+        Number(exp.amount) === Number(amount) &&
+        exp.category === category &&
+        exp.date === date &&
+        exp.description === description
+      );
+
+      newlyAddedExpenseId = matchingExpense?.id ?? null;
+
+      if (newlyAddedExpenseId != null) {
+        renderExpenses();
+      }
+    }
 
     clearStatus();
-    renderExpenses();
 
     if (tableSection) {
       tableSection.scrollIntoView({
@@ -968,7 +1156,6 @@ async function addExpense() {
     }, 2800);
 
     showAppToast("Expense added successfully.");
-
   } catch (error) {
     console.error("Create failed:", error);
     showStatus("Failed to save expense. Please check the server and try again.", "error");
@@ -979,7 +1166,7 @@ async function addExpense() {
   amountInput.value = "";
   dateInput.value = "";
   descInput.value = "";
-  descCounter.textContent = "0/70";
+  descCounter.textContent = `0/${DESCRIPTION_LIMIT}`;
   setTodayDate();
 }
 
@@ -1024,13 +1211,16 @@ function updateExpense(index, field, value, el = null) {
     if (!isValidDate(isoDate)) {
       targetExpenses[index].dateError = "Invalid calendar date";
       if (el) el.innerText = formatDateDisplay(targetExpenses[index].date || "");
-      renderExpenses();
       return;
     }
 
     targetExpenses[index].dateError = "";
     targetExpenses[index].date = isoDate;
-    renderExpenses();
+
+    if (el) {
+      el.innerText = formatDateDisplay(isoDate);
+    }
+
     return;
   }
 
@@ -1062,12 +1252,22 @@ function updateExpense(index, field, value, el = null) {
       el.innerText = String(numericValue);
     }
 
-    renderExpenses();
+    return;
+  }
+
+  if (field === "description") {
+    const limitedValue = value.slice(0, DESCRIPTION_LIMIT);
+    targetExpenses[index].description = limitedValue;
+
+    if (el && el.innerText !== limitedValue) {
+      el.innerText = limitedValue;
+      focusEditableCellAtEnd(el);
+    }
+
     return;
   }
 
   targetExpenses[index][field] = value;
-  renderExpenses();
 }
 
 function resetDashboardView() {
@@ -1111,7 +1311,7 @@ function resetDashboardView() {
   expenseNameInput.value = "";
   amountInput.value = "";
   descInput.value = "";
-  descCounter.textContent = "0/70";
+  descCounter.textContent = `0/${DESCRIPTION_LIMIT}`;
 
   expenseNameError.textContent = "";
   amountError.textContent = "";
@@ -1147,6 +1347,8 @@ function logout() {
 function handleTableFocusIn(event) {
   const cell = event.target.closest("td[data-field]");
   if (!cell || cell.classList.contains("locked")) return;
+
+  activeEditCell = cell;
   cell.classList.add("editing");
 }
 
@@ -1176,12 +1378,40 @@ function handleTableChange(event) {
   updateExpense(index, "category", select.value);
 }
 
-function handleTableClick(event) {
-  const deleteButton = event.target.closest("button[data-action='delete']");
-  if (!deleteButton) return;
+function handleTableInput(event) {
+  const cell = event.target.closest("td[data-field='description']");
+  if (!cell || cell.classList.contains("locked")) return;
 
-  const index = Number(deleteButton.dataset.index);
-  deleteExpense(index);
+  let value = cell.innerText.replace(/\n/g, " ");
+
+  if (value.length > DESCRIPTION_LIMIT) {
+    value = value.slice(0, DESCRIPTION_LIMIT);
+    cell.innerText = value;
+    focusEditableCellAtEnd(cell);
+  }
+
+  const index = Number(cell.dataset.index);
+
+  if (Number.isInteger(index)) {
+    draftExpenses[index].description = value;
+  }
+}
+
+function handleTableClick(event) {
+  const editButton = event.target.closest("button[data-action='edit-row']");
+  if (editButton) {
+    if (isEditMode || editButton.disabled) return;
+  
+    const index = Number(editButton.dataset.index);
+    startRowEdit(index);
+    return;
+  }
+
+  const deleteButton = event.target.closest("button[data-action='delete']");
+  if (deleteButton) {
+    const index = Number(deleteButton.dataset.index);
+    deleteExpense(index);
+  }
 }
 
 // ---------- Static event binding ----------
@@ -1217,9 +1447,9 @@ function bindEvents() {
     descInput.classList.remove("error");
 
     const length = descInput.value.length;
-    descCounter.textContent = `${length}/70`;
+    descCounter.textContent = `${length}/${DESCRIPTION_LIMIT}`;
 
-    if (length >= 70) {
+    if (length >= DESCRIPTION_LIMIT) {
       descError.textContent = "Max 70 characters";
     } else {
       descError.textContent = "";
@@ -1227,9 +1457,9 @@ function bindEvents() {
   });
 
   const appToastCloseBtn = document.getElementById("app-toast-close");
-if (appToastCloseBtn) {
-  appToastCloseBtn.addEventListener("click", hideAppToast);
-}
+  if (appToastCloseBtn) {
+    appToastCloseBtn.addEventListener("click", hideAppToast);
+  }
 
   document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -1267,20 +1497,26 @@ if (appToastCloseBtn) {
     if (!isEditMode) {
       isEditMode = true;
       draftExpenses = cloneExpenses(expenses);
+      activeEditCell = null;
       editTableBtn.textContent = "Save";
       cancelTableBtn.classList.remove("inactive");
       renderExpenses();
       return;
     }
-
+  
     try {
+      commitActiveTableCell();
+  
       await saveDraftChanges();
+  
       isEditMode = false;
+      activeEditCell = null;
       editTableBtn.textContent = "Edit";
       cancelTableBtn.classList.add("inactive");
-      draftExpenses = cloneExpenses(expenses);
+  
+      await loadExpenses();
+  
       clearStatus();
-      renderExpenses();
       showAppToast("Changes saved successfully.");
     } catch (error) {
       console.error("Save failed:", error);
@@ -1347,7 +1583,7 @@ if (appToastCloseBtn) {
       return;
     }
 
-    const date = new Date(value);
+    const date = new Date(`${value}T00:00:00`);
 
     if (
       date.getFullYear() !== Number(value.slice(0, 4)) ||
@@ -1411,6 +1647,7 @@ if (appToastCloseBtn) {
   if (expenseBody) {
     expenseBody.addEventListener("focusin", handleTableFocusIn);
     expenseBody.addEventListener("focusout", handleTableFocusOut);
+    expenseBody.addEventListener("input", handleTableInput);
     expenseBody.addEventListener("change", handleTableChange);
     expenseBody.addEventListener("click", handleTableClick);
   }

@@ -76,12 +76,12 @@ body {
 
 .header-full {
     width: 100%;
-    background: #111;
+    background: #fafafa;
     padding-top: 14px;
     padding-bottom: 20px;
     padding-left: 40px;
     padding-right: 40px;
-    border-bottom: 1px solid #262626;
+    border-bottom: 1px solid #D1D1D1;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -93,8 +93,7 @@ body {
 }
 
 .header-full.scrolled {
-    opacity: 0.82;
-    background: rgba(17, 17, 17, 0.94);
+    background: #fafafa;
     box-shadow: 0 6px 18px rgba(0,0,0,0.08);
 }
 
@@ -102,7 +101,7 @@ body {
     font-size: 26.4px;
     font-weight: 700;
     letter-spacing: -0.4px;
-    color: #fafafa;
+    color: #0a0a0a;
     margin: 0;
 }
 
@@ -140,7 +139,7 @@ body {
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    border: 1px solid #262626;
+    border: 1px solid #D1D1D1;
     object-fit: cover;
     flex-shrink: 0;
 }
@@ -162,7 +161,7 @@ body {
 .username {
     font-weight: 500;
     font-size: 14px;
-    color: #A1A1A1;
+    color: #0a0a0a;
     cursor: pointer;
     line-height: 1;
     transition: color 0.15s ease;
@@ -176,11 +175,10 @@ body {
 
 .username-wrapper:hover .username,
 .username-wrapper:hover .arrow {
-    color: #fafafa;
+    color: #0a0a0a;
 }
 
-.username-wrapper.active .username,
-.username-wrapper.active .arrow {
+.username-wrapper.active .username {
     color: var(--accent-green);
 }
 
@@ -198,7 +196,7 @@ body {
     top: 45px;
     right: 0;
     background: #fafafa;
-    border: 1px solid #262626;
+    border: 1px solid #D1D1D1;
     border-radius: 8px;
     min-width: 120px;
     padding: 6px;
@@ -226,12 +224,12 @@ body {
     background: transparent;
     color: #0a0a0a;
     text-align: left;
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.2;
 }
 
 .logout-btn:hover {
-    background: #ddd;
+    background: #eee;
     color: #0a0a0a;
 }
 
@@ -706,38 +704,6 @@ input[type="date"].has-value {
     display: none !important;
 }
 
-.delete-btn {
-    position: absolute;
-    top: 50%;
-    right: 20px;
-    transform: translateY(-50%);
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    margin: 0;
-    background: transparent;
-    color: #A1A1A1;
-    border: none;
-    border-radius: 2px;
-    font-size: 20px;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: 0.15s ease;
-}
-
-.delete-btn:hover {
-    background: #F5F5F5;
-    color: #e74c3c;
-}
-
-.delete-btn:focus,
-.delete-btn:focus-visible {
-    outline: none;
-}
-
 button {
     background: #0a0a0a;
     color: #fafafa;
@@ -760,6 +726,91 @@ button:hover {
 
 button:active {
     transform: scale(0.98);
+}
+
+#expense-table th.actions-header,
+#expense-table td.actions-cell,
+#expense-table th:nth-child(6),
+#expense-table td:nth-child(6) {
+    width: 92px;
+    min-width: 92px;
+    max-width: 92px;
+}
+
+#expense-table td.actions-cell {
+    padding: 0 28px 0 6px !important;
+    overflow: visible;
+    white-space: nowrap;
+    position: relative;
+    z-index: 3;
+}
+
+.row-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    width: 100%;
+    position: relative;
+    z-index: 4;
+}
+
+.row-icon-btn {
+    width: 24px !important;
+    height: 24px !important;
+    min-width: 24px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 5px !important;
+    background: transparent !important;
+    color: #A1A1A1;
+}
+
+.row-icon-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+    stroke: none;
+    display: block;
+}
+
+.delete-btn {
+    font-size: 22px;
+    line-height: 1;
+    font-weight: 300;
+}
+
+.row-icon-btn:hover {
+    background: #F5F5F5 !important;
+}
+
+.edit-row-btn:hover {
+    color: var(--accent-green);
+}
+
+.delete-btn:hover {
+    color: #e74c3c;
+}
+
+#expense-table td.description-cell {
+    max-width: 0;
+    padding-right: 18px;
+    position: relative;
+    z-index: 1;
+}
+
+#expense-table td.description-cell:not(.locked):focus,
+#expense-table td.description-cell:not(.locked).editing {
+    white-space: normal;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    text-overflow: unset;
+    min-height: 52px;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    padding-right: 18px;
+    z-index: 1;
 }
 
 .table-section h3 {
@@ -1359,4 +1410,65 @@ button:active {
 
 #expense-table tr.new-expense-row td:last-child {
     border-radius: 0 8px 8px 0;
+}
+
+/* Final row action icon sizing/alignment */
+.row-icon-btn {
+    width: 26px !important;
+    height: 26px !important;
+    min-width: 26px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 5px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.row-icon-btn svg {
+    width: 16.5px !important;
+    height: 16.5px !important;
+    fill: currentColor;
+    stroke: none;
+    display: block;
+}
+
+.edit-row-btn svg {
+    transform: translate(0.5px, -0.5px);
+}
+
+.delete-btn {
+    font-size: 24px !important;
+    line-height: 1 !important;
+    font-weight: 300;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding-bottom: 2px !important;
+}
+
+.row-icon-btn:hover {
+    background: #F5F5F5 !important;
+}
+
+.edit-row-btn:hover {
+    color: var(--accent-green);
+}
+
+.delete-btn:hover {
+    color: #e74c3c;
+}
+
+/* Force delete button to stay hidden outside edit mode */
+.row-icon-btn.hidden-delete,
+.delete-btn.hidden-delete,
+button.hidden-delete {
+    display: none !important;
+}
+
+/* Hide pencil edit button while table edit mode is active */
+.row-icon-btn.hidden-edit,
+.edit-row-btn.hidden-edit,
+button.hidden-edit {
+    display: none !important;
 }
