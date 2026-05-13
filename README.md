@@ -8,7 +8,7 @@ Many people track expenses in spreadsheets or scattered notes, which makes it ha
 
 ## Technical Stack
 
-- **Frontend:** HTML, CSS, JavaScript
+- **Frontend:** React, HTML, CSS, JavaScript
 - **Styling:** Custom CSS
 - **Backend:** Node.js + Express
 - **Database:** MySQL
@@ -38,15 +38,20 @@ Many people track expenses in spreadsheets or scattered notes, which makes it ha
 
 ## Folder Structure
 
-- `index.html` – main single-page app interface
-- `style.css` – all application styling and responsive layout rules
-- `script.js` – frontend logic, rendering, validation, filtering, editing, search, pagination, and charts
-- `server.js` – Express server and API routes
-- `db.js` – MySQL database connection configuration
-- `package.json` – project dependencies and scripts
-- `package-lock.json` – exact dependency versions
+- `client/` – React frontend application
+- `client/src/App.jsx` – main React interface for expenses
+- `client/src/App.css` – React application styling
+- `server/` – Node.js and Express backend
+- `server/server.js` – backend entry point and route registration
+- `server/db.js` – MySQL connection pool
+- `server/routes/authRoutes.js` – registration and login APIs
+- `server/routes/expenseRoutes.js` – protected expense CRUD APIs
+- `server/routes/adminRoutes.js` – admin user and activity APIs
+- `server/middleware/authMiddleware.js` – JWT authentication and admin checks
+- `server/utils/logActivity.js` – helper for recording user activity
+- `server/.env.example` – example backend environment variables
+- `database/expense_tracker.sql` – database setup with users, expenses, and activity tables
 - `Assets/` – static assets such as the favicon
-- `expense_tracker.sql` – exported MySQL database structure and data
 
 ## Challenges Overcome
 
@@ -60,49 +65,51 @@ One challenge was converting the original front-end-only version into a database
 npm install
 ```
 
-### 2. Create the database
-
-Open MySQL and create a database called `expense_tracker`.
-
-```sql
-CREATE DATABASE expense_tracker;
-```
-
-### 3. Import the database export
+### 2. Import the database export
 
 If `mysql` is available on your PATH:
 
 ```bash
-mysql -u root -p expense_tracker < expense_tracker.sql
+mysql -u root -p < database/expense_tracker.sql
 ```
 
 If `mysql` is not available on your PATH, use the full MySQL binary path instead:
 
 ```bash
-/usr/local/mysql/bin/mysql -u root -p expense_tracker < expense_tracker.sql
+/usr/local/mysql/bin/mysql -u root -p < database/expense_tracker.sql
 ```
 
-### 4. Check the database connection settings
+### 3. Check the database connection settings
 
-Open `db.js` and make sure the MySQL connection details match your local setup.
+Copy `server/.env.example` to `server/.env` and update the MySQL password and JWT secret.
 
-### 5. Start the backend server
+### 4. Start the backend server
 
 ```bash
-node server.js
+cd server
+npm install
+npm start
 ```
 
-### 6. Open the application
+### 5. Start the React frontend
 
-Open `index.html` in your browser, or use a local live server if needed.
+```bash
+cd client
+npm install
+npm run dev
+```
 
 ## API Overview
 
 The frontend communicates with the backend using these REST endpoints:
-- GET /expenses – retrieve all expenses
-- POST /expenses – create a new expense
-- PUT /expenses/:id – update an existing expense
-- DELETE /expenses/:id – delete an expense
+- POST /auth/register – create a user account with a bcrypt-hashed password
+- POST /auth/login – verify the password and return a JWT
+- GET /expenses – retrieve the logged-in user's expenses
+- POST /expenses – create an expense for the logged-in user
+- PUT /expenses/:id – update one of the logged-in user's expenses
+- DELETE /expenses/:id – delete one of the logged-in user's expenses
+- GET /admin/users – admin-only list of users
+- GET /admin/activity – admin-only user activity history
 
 ## Notes
 
