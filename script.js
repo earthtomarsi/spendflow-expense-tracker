@@ -7,7 +7,7 @@ const AUTH_TOKEN = "PASTE_YOUR_CURRENT_JWT_TOKEN_HERE";
 let categoryChart = null;
 let pieChart = null;
 let currentFilter = "All";
-let currentSort = "date-desc";
+let currentSort = "added-desc";
 let currentMonthFilter = "All";
 let currentSearch = "";
 let pendingSearch = "";
@@ -29,6 +29,7 @@ const addBtn = document.getElementById("add-btn");
 const expenseNameError = document.getElementById("expenseName-error");
 const amountError = document.getElementById("amount-error");
 const dateInput = document.getElementById("date");
+let dateManualInput = document.getElementById("date-manual");
 const dateError = document.getElementById("date-error");
 const descInput = document.getElementById("description");
 const descError = document.getElementById("desc-error");
@@ -49,6 +50,193 @@ const usernameWrapper = document.querySelector(".username-wrapper");
 const logoutBtn = document.getElementById("logout-btn");
 const trendSection = document.querySelector(".trend-section");
 const tableSection = document.querySelector(".table-section");
+const filterMenu = document.getElementById("filter-menu");
+const sortMenu = document.getElementById("sort-menu");
+const sortMenuLabel = document.getElementById("sort-menu-label");
+const monthMenu = document.getElementById("month-menu");
+const monthMenuPanel = document.getElementById("month-menu-panel");
+const monthMenuLabel = document.getElementById("month-menu-label");
+const datePicker = document.getElementById("date-picker");
+const dateTrigger = document.getElementById("date-trigger");
+const dateTriggerLabel = document.getElementById("date-trigger-label");
+const datePickerGrid = document.getElementById("date-picker-grid");
+const datePickerMonthLabel = document.getElementById("date-picker-month-label");
+const datePrevMonthBtn = document.getElementById("date-prev-month");
+const dateNextMonthBtn = document.getElementById("date-next-month");
+const datePickerTodayBtn = document.getElementById("date-picker-today");
+let datePickerViewDate = null;
+let addExpenseCategoryMenu = null;
+let addExpenseCategoryMenuLabel = null;
+
+/**
+ * Ensures the Add Expense date field has a visible typed input.
+ *
+ * Older HTML versions only had the hidden #date value and custom calendar
+ * button. This creates #date-manual when it is missing, so users can type
+ * MM/DD/YYYY while the backend still receives YYYY-MM-DD from #date.
+ */
+function ensureTypedDateInput() {
+  if (!dateInput) return;
+
+  const fieldGroup =
+    dateInput.closest(".date-field-group") ||
+    datePicker?.closest(".date-field-group") ||
+    dateInput.parentElement;
+
+  if (!fieldGroup) return;
+
+  // Keep #date as the hidden ISO field used by validation and the backend.
+  dateInput.type = "hidden";
+
+  let shell = fieldGroup.querySelector(".date-input-shell");
+
+  if (!shell) {
+    shell = document.createElement("div");
+    shell.className = "date-input-shell";
+
+    const insertBeforeTarget =
+      document.getElementById("date-helper") ||
+      document.getElementById("date-error") ||
+      null;
+
+    fieldGroup.insertBefore(shell, insertBeforeTarget);
+  }
+
+  if (!dateManualInput) {
+    dateManualInput = document.createElement("input");
+    dateManualInput.id = "date-manual";
+    dateManualInput.className = "date-manual-input";
+    dateManualInput.type = "text";
+    dateManualInput.inputMode = "numeric";
+    dateManualInput.autocomplete = "off";
+    dateManualInput.placeholder = "MM/DD/YYYY";
+    dateManualInput.setAttribute("aria-describedby", "date-helper date-error");
+  }
+
+  if (dateManualInput.parentElement !== shell) {
+    shell.insertBefore(dateManualInput, shell.firstChild);
+  }
+
+  if (datePicker && datePicker.parentElement !== shell) {
+    shell.appendChild(datePicker);
+  }
+}
+
+
+/**
+ * Builds a custom dropdown for the Add Expense category field.
+ *
+ * The native #category select is kept hidden for form logic and backend values,
+ * while the custom dropdown visually matches the Filter, Sort, Month, and
+ * Logout menus.
+ */
+function ensureAddExpenseCategoryMenu() {
+  if (!categoryInput || addExpenseCategoryMenu) return;
+
+  const fieldGroup = categoryInput.closest(".field-group") || categoryInput.parentElement;
+  if (!fieldGroup) return;
+
+  const nativeWrapper = categoryInput.closest(".select-wrapper");
+
+  // Hide the original native select UI, including its old arrow wrapper.
+  // The original #category value is still used by addExpense() and the backend.
+  categoryInput.classList.add("native-control-hidden", "add-expense-category-native");
+  categoryInput.setAttribute("aria-hidden", "true");
+  categoryInput.tabIndex = -1;
+
+  if (nativeWrapper) {
+    nativeWrapper.classList.add("add-expense-category-hidden-wrapper");
+  }
+
+  const details = document.createElement("details");
+  details.id = "add-expense-category-menu";
+  details.className = "toolbar-menu add-expense-category-menu";
+
+  details.innerHTML = `
+    <summary class="toolbar-button add-expense-category-trigger" aria-label="Choose category">
+      <span id="add-expense-category-label">Category</span>
+      <span class="toolbar-chevron" aria-hidden="true">›</span>
+    </summary>
+    <div class="toolbar-menu-panel add-expense-category-panel"></div>
+  `;
+
+  if (nativeWrapper && nativeWrapper.parentElement === fieldGroup) {
+    fieldGroup.insertBefore(details, nativeWrapper);
+  } else if (categoryInput.parentElement === fieldGroup) {
+    fieldGroup.insertBefore(details, categoryInput);
+  } else {
+    fieldGroup.appendChild(details);
+  }
+
+  addExpenseCategoryMenu = details;
+  addExpenseCategoryMenuLabel = details.querySelector("#add-expense-category-label");
+
+  buildAddExpenseCategoryOptions();
+  syncAddExpenseCategoryMenu();
+}
+
+
+/**
+ * Rebuilds custom category options from the native #category select.
+ * This keeps both controls in sync if the original select options change later.
+ */
+function buildAddExpenseCategoryOptions() {
+  if (!categoryInput || !addExpenseCategoryMenu) return;
+
+  const panel = addExpenseCategoryMenu.querySelector(".add-expense-category-panel");
+  if (!panel) return;
+
+  panel.innerHTML = Array.from(categoryInput.options)
+    .map(option => `
+      <button
+        class="add-expense-category-option"
+        type="button"
+        data-category-value="${escapeHtml(option.value)}"
+      >
+        ${escapeHtml(option.textContent.trim())}
+      </button>
+    `)
+    .join("");
+}
+
+/**
+ * Updates the custom dropdown label and active option from #category.
+ */
+function syncAddExpenseCategoryMenu() {
+  if (!categoryInput || !addExpenseCategoryMenu) return;
+
+  const selectedOption =
+    categoryInput.selectedOptions?.[0] ||
+    Array.from(categoryInput.options).find(option => option.value === categoryInput.value);
+
+  if (addExpenseCategoryMenuLabel) {
+    addExpenseCategoryMenuLabel.textContent = selectedOption?.textContent?.trim() || "Category";
+  }
+
+  addExpenseCategoryMenu.querySelectorAll(".add-expense-category-option").forEach(option => {
+    option.classList.toggle("active", option.dataset.categoryValue === categoryInput.value);
+  });
+}
+
+/**
+ * Sets the hidden native category value from the custom dropdown.
+ */
+function setAddExpenseCategoryValue(value) {
+  if (!categoryInput) return;
+
+  categoryInput.value = value;
+  categoryInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+  syncAddExpenseCategoryMenu();
+
+  if (addExpenseCategoryMenu) {
+    addExpenseCategoryMenu.open = false;
+  }
+}
+
+ensureTypedDateInput();
+ensureAddExpenseCategoryMenu();
+
 
 // ---------- Helpers ----------
 function cloneExpenses(expenseList) {
@@ -155,6 +343,378 @@ function formatDateDisplay(value) {
   return `${month}/${day}/${year}`;
 }
 
+function formatMonthDisplay(value) {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return "Month";
+
+  const [year, month] = value.split("-").map(Number);
+  return new Date(year, month - 1, 1).toLocaleString("en-US", {
+    month: "short",
+    year: "numeric"
+  });
+}
+
+function getSortLabel(value) {
+  const option = document.querySelector(`.sort-option[data-sort-value="${value}"]`);
+  return option ? option.textContent.trim() : "Date: Most Recent";
+}
+
+function closeToolbarMenus(except = null) {
+  [filterMenu, sortMenu, monthMenu, datePicker, addExpenseCategoryMenu].forEach(menu => {
+    if (menu && menu !== except) menu.open = false;
+  });
+}
+
+
+function closeProfileMenu() {
+  if (!usernameWrapper) return;
+
+  const profile = usernameWrapper.closest(".profile");
+
+  usernameWrapper.classList.remove("active");
+  usernameWrapper.setAttribute("aria-expanded", "false");
+
+  if (profile) {
+    profile.classList.remove("menu-open");
+  }
+}
+
+
+/**
+ * Chart tooltip helpers
+ *
+ * These custom Chart.js tooltip positioners keep tooltips close to the hovered
+ * chart item while preserving native Chart.js tooltip pointers/caret tips.
+ */
+/**
+ * Chart tooltip helpers
+ *
+ * The line chart uses a small native tooltip positioner.
+ * The category doughnut uses a custom HTML tooltip so it can sit outside
+ * the ring and avoid covering the center total.
+ */
+function setupChartTooltips() {
+  if (!window.Chart || !Chart.Tooltip || !Chart.Tooltip.positioners) return;
+
+  Chart.Tooltip.positioners.monthlyPoint = function(elements) {
+    if (!elements.length) return false;
+
+    const point = elements[0].element;
+
+    return {
+      x: point.x,
+      y: point.y,
+      xAlign: "center",
+      yAlign: "bottom"
+    };
+  };
+}
+
+setupChartTooltips();
+
+/**
+ * Creates the custom tooltip element used by the category doughnut chart.
+ * It is appended to <body>, not inside the canvas, so it will not be clipped
+ * by the chart card or overlap the center total.
+ */
+function getOrCreatePieTooltip() {
+  let tooltipEl = document.getElementById("pie-chart-tooltip");
+
+  if (!tooltipEl) {
+    tooltipEl = document.createElement("div");
+    tooltipEl.id = "pie-chart-tooltip";
+    tooltipEl.className = "chart-external-tooltip";
+    document.body.appendChild(tooltipEl);
+  }
+
+  return tooltipEl;
+}
+
+/**
+ * Positions the category tooltip close to the hovered doughnut slice.
+ * The tooltip is pushed outside the ring and given a pointer tip using CSS.
+ */
+function externalPieTooltip(context) {
+  const { chart, tooltip } = context;
+  const tooltipEl = getOrCreatePieTooltip();
+
+  if (!tooltip || tooltip.opacity === 0 || !tooltip.dataPoints || tooltip.dataPoints.length === 0) {
+    tooltipEl.classList.remove("is-visible", "is-right", "is-left");
+    return;
+  }
+
+  const point = tooltip.dataPoints[0];
+  const arc = point.element;
+  const label = point.label || "";
+  const value = Number(point.raw) || 0;
+  const dataset = chart.data.datasets[point.datasetIndex];
+  const total = dataset.data.reduce((sum, item) => sum + (Number(item) || 0), 0);
+  const percentage = total ? ((value / total) * 100).toFixed(1) : "0.0";
+  const color = Array.isArray(dataset.backgroundColor)
+    ? dataset.backgroundColor[point.dataIndex]
+    : dataset.backgroundColor;
+
+  const angle = (arc.startAngle + arc.endAngle) / 2;
+  const directionX = Math.cos(angle);
+  const directionY = Math.sin(angle);
+  const canvasRect = chart.canvas.getBoundingClientRect();
+
+  // Horizontal distance keeps the tooltip outside the ring.
+  // A small vertical adjustment keeps it visually tied to the hovered slice.
+  const tooltipX = canvasRect.left + window.scrollX + arc.x + directionX * (arc.outerRadius + 22);
+  const tooltipY = canvasRect.top + window.scrollY + arc.y + directionY * Math.min(arc.outerRadius * 0.42, 46);
+
+  tooltipEl.style.transition = "opacity 0.32s ease, transform 0.32s ease, left 0.32s ease, top 0.32s ease";
+
+  tooltipEl.innerHTML = `
+    <div class="chart-external-tooltip-title">${escapeHtml(label)}</div>
+    <div class="chart-external-tooltip-row">
+      <span class="chart-external-tooltip-dot" style="background:${color}"></span>
+      <span>${formatCurrency(value)} · ${percentage}%</span>
+    </div>
+  `;
+
+  tooltipEl.style.left = `${tooltipX}px`;
+  tooltipEl.style.top = `${tooltipY}px`;
+  tooltipEl.style.transform = directionX >= 0
+    ? "translate(14px, -50%)"
+    : "translate(calc(-100% - 14px), -50%)";
+
+  tooltipEl.classList.toggle("is-right", directionX >= 0);
+  tooltipEl.classList.toggle("is-left", directionX < 0);
+  tooltipEl.classList.add("is-visible");
+}
+function syncSortMenuState() {
+  const sortValue = document.getElementById("sort-select")?.value || currentSort || "added-desc";
+
+  if (sortMenuLabel) {
+    sortMenuLabel.textContent = getSortLabel(sortValue);
+  }
+
+  document.querySelectorAll(".sort-option").forEach(option => {
+    option.classList.toggle("active", option.dataset.sortValue === sortValue);
+  });
+}
+
+function buildMonthMenuOptions() {
+  if (!monthMenuPanel) return;
+
+  const today = getTodayLocalDate();
+  const currentYear = Number(today.slice(0, 4));
+  const currentMonth = today.slice(0, 7);
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const value = `${currentYear}-${String(index + 1).padStart(2, "0")}`;
+    const label = new Date(currentYear, index, 1).toLocaleString("en-US", { month: "short" });
+    return { value, label };
+  });
+
+  monthMenuPanel.innerHTML = `
+    <p class="month-menu-title">${currentYear}</p>
+    <button class="month-option month-option-wide" data-month-value="${currentMonth}" type="button">This month</button>
+    <div class="month-options-grid">
+      ${months.map(month => `
+        <button class="month-option" data-month-value="${month.value}" type="button">${month.label}</button>
+      `).join("")}
+    </div>
+  `;
+
+  syncMonthMenuState();
+}
+
+function syncMonthMenuState() {
+  if (monthMenuLabel) {
+    monthMenuLabel.textContent = monthFilterInput?.value ? formatMonthDisplay(monthFilterInput.value) : "Month";
+  }
+
+  document.querySelectorAll(".month-option").forEach(option => {
+    option.classList.toggle("active", option.dataset.monthValue === monthFilterInput?.value);
+  });
+}
+
+function setMonthFilterValue(value) {
+  if (!monthFilterInput) return;
+
+  monthFilterInput.value = value;
+  monthFilterInput.dispatchEvent(new Event("change", { bubbles: true }));
+  closeToolbarMenus();
+}
+
+function getDateFromInputValue(value) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Converts a user-typed date into the ISO format used by the backend.
+ * Accepted formats:
+ * - MM/DD/YYYY or M/D/YYYY
+ * - YYYY-MM-DD
+ */
+function parseTypedDateToIso(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) return "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!slashMatch) return null;
+
+  const [, monthRaw, dayRaw, yearRaw] = slashMatch;
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const year = Number(yearRaw);
+
+  if (!Number.isInteger(month) || !Number.isInteger(day) || !Number.isInteger(year)) {
+    return null;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/**
+ * Syncs the visible typed date input into the hidden ISO #date input.
+ * This keeps the backend payload unchanged while allowing users to type dates.
+ */
+function syncTypedDateToHidden(showError = false) {
+  if (!dateManualInput || !dateInput) return true;
+
+  const typedValue = dateManualInput.value.trim();
+  const isoValue = parseTypedDateToIso(typedValue);
+
+  dateManualInput.classList.remove("error");
+  dateInput.classList.remove("error");
+  if (dateError) dateError.textContent = "";
+
+  if (!typedValue) {
+    dateInput.value = "";
+    dateInput.classList.remove("has-value");
+
+    if (showError) {
+      dateError.textContent = "Please enter or select a date";
+      dateManualInput.classList.add("error");
+      dateInput.classList.add("error");
+    }
+
+    syncExpenseDateControl();
+    return !showError;
+  }
+
+  if (!isoValue || !isValidDate(isoValue)) {
+    if (showError) {
+      dateError.textContent = "Use a valid date in MM/DD/YYYY or YYYY-MM-DD";
+      dateManualInput.classList.add("error");
+      dateInput.classList.add("error");
+    }
+
+    syncExpenseDateControl();
+    return false;
+  }
+
+  dateInput.value = isoValue;
+  dateInput.classList.add("has-value");
+  datePickerViewDate = getDateFromInputValue(isoValue);
+
+  syncExpenseDateControl();
+  renderExpenseDatePicker();
+  return true;
+}
+
+function syncExpenseDateControl() {
+  if (!dateTrigger || !dateTriggerLabel) return;
+
+  const value = dateInput?.value || "";
+  const displayValue = value ? formatDateDisplay(value) : "";
+
+  if (dateManualInput && document.activeElement !== dateManualInput) {
+    dateManualInput.value = displayValue;
+  }
+
+  dateTriggerLabel.textContent = value
+    ? `Open calendar for ${displayValue}`
+    : "Open calendar";
+
+  dateTrigger.classList.toggle("has-value", Boolean(value));
+  dateTrigger.classList.toggle("error", Boolean(dateInput?.classList.contains("error")));
+
+  if (dateManualInput) {
+    dateManualInput.classList.toggle("has-value", Boolean(value));
+    dateManualInput.classList.toggle("error", Boolean(dateInput?.classList.contains("error")));
+  }
+}
+
+function renderExpenseDatePicker() {
+  if (!datePickerGrid || !datePickerMonthLabel) return;
+
+  const todayValue = getTodayLocalDate();
+  const todayDate = getDateFromInputValue(todayValue);
+  const selectedDate = getDateFromInputValue(dateInput?.value || "");
+  const viewDate = datePickerViewDate || selectedDate || todayDate;
+  const viewYear = viewDate.getFullYear();
+  const viewMonth = viewDate.getMonth();
+
+  datePickerMonthLabel.textContent = viewDate.toLocaleString("en-US", {
+    month: "long",
+    year: "numeric"
+  });
+
+  const firstDay = new Date(viewYear, viewMonth, 1);
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const startOffset = firstDay.getDay();
+  const selectedValue = dateInput?.value || "";
+  const cells = [];
+
+  for (let i = 0; i < startOffset; i++) {
+    cells.push(`<span class="date-day empty" aria-hidden="true"></span>`);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const value = `${viewYear}-${String(viewMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const isSelected = value === selectedValue;
+    const isToday = value === todayValue;
+    const isFuture = value > todayValue;
+
+    cells.push(`
+      <button class="date-day${isSelected ? " selected" : ""}${isToday ? " today" : ""}" data-date-value="${value}" type="button"${isFuture ? " disabled" : ""}>
+        ${day}
+      </button>
+    `);
+  }
+
+  datePickerGrid.innerHTML = cells.join("");
+
+  if (dateNextMonthBtn) {
+    const nextMonthValue = new Date(viewYear, viewMonth + 1, 1);
+    const currentMonthValue = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    dateNextMonthBtn.disabled = nextMonthValue > currentMonthValue;
+  }
+}
+
+function setExpenseDateValue(value) {
+  if (!dateInput) return;
+
+  dateInput.value = value;
+  dateInput.classList.toggle("has-value", Boolean(value));
+  dateInput.classList.remove("error");
+
+  if (dateManualInput) {
+    dateManualInput.value = value ? formatDateDisplay(value) : "";
+    dateManualInput.classList.toggle("has-value", Boolean(value));
+    dateManualInput.classList.remove("error");
+  }
+
+  if (dateError) dateError.textContent = "";
+  dateInput.dispatchEvent(new Event("input", { bubbles: true }));
+  syncExpenseDateControl();
+  renderExpenseDatePicker();
+
+  if (datePicker) {
+    datePicker.open = false;
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -193,43 +753,6 @@ function clearStatus() {
   statusMessage.hidden = true;
   statusMessage.textContent = "";
   statusMessage.className = "status-message";
-}
-
-function renderAuthState() {
-  const profile = document.querySelector(".profile");
-  const dropdown = document.querySelector(".dropdown");
-  const username = document.querySelector(".username");
-  const arrow = document.querySelector(".arrow");
-  const profilePic = document.querySelector(".profile-pic");
-
-  if (!profile || !usernameWrapper) return;
-
-  if (isLoggedIn) {
-    profile.classList.remove("logged-out");
-    usernameWrapper.classList.remove("login-header-btn");
-    usernameWrapper.setAttribute("aria-expanded", "false");
-    usernameWrapper.setAttribute("role", "button");
-    usernameWrapper.setAttribute("tabindex", "0");
-
-    if (username) username.textContent = "Marsi";
-    if (arrow) arrow.hidden = false;
-    if (dropdown) dropdown.hidden = false;
-    if (profilePic) profilePic.hidden = false;
-
-    return;
-  }
-
-  profile.classList.add("logged-out");
-  usernameWrapper.classList.remove("active");
-  usernameWrapper.classList.add("login-header-btn");
-  usernameWrapper.setAttribute("aria-expanded", "false");
-  usernameWrapper.setAttribute("role", "button");
-  usernameWrapper.setAttribute("tabindex", "0");
-
-  if (username) username.textContent = "Login";
-  if (arrow) arrow.hidden = true;
-  if (dropdown) dropdown.hidden = true;
-  if (profilePic) profilePic.hidden = true;
 }
 
 function showAppToast(message) {
@@ -292,6 +815,11 @@ function destroyCharts() {
     categoryChart.destroy();
     categoryChart = null;
   }
+
+  const tooltipEl = document.getElementById("pie-chart-tooltip");
+  if (tooltipEl) {
+    tooltipEl.classList.remove("is-visible", "is-right", "is-left");
+  }
 }
 
 function toggleTrendSection(show) {
@@ -326,7 +854,7 @@ function getFilteredExpenses(sourceExpenses, includeSearch = true) {
 
     switch (currentSort) {
       case "added-desc":
-        return Number(b.id || 0) - Number(a.id || 0);
+        return dateB - dateA || Number(b.id || 0) - Number(a.id || 0);
       case "amount-asc":
         return amountA - amountB;
       case "amount-desc":
@@ -346,6 +874,28 @@ function getFilteredExpenses(sourceExpenses, includeSearch = true) {
   return filtered;
 }
 
+/**
+ * Moves the Expense History table to the page containing a specific expense.
+ *
+ * This is used after adding a new expense. The new row may not belong on page 1
+ * because the table is sorted by date/amount/name, so we calculate its true
+ * position in the current filtered + sorted list before rendering the highlight.
+ */
+function jumpToExpensePage(expenseId) {
+  if (expenseId == null) return false;
+
+  const filteredExpenses = getFilteredExpenses(expenses, true);
+  const targetIndex = filteredExpenses.findIndex(exp =>
+    String(exp.id) === String(expenseId)
+  );
+
+  if (targetIndex === -1) return false;
+
+  currentPage = Math.floor(targetIndex / rowsPerPage) + 1;
+  return true;
+}
+
+
 function syncMonthFilterState() {
   if (!monthFilterInput) return;
 
@@ -354,6 +904,8 @@ function syncMonthFilterState() {
   } else {
     monthFilterInput.classList.remove("has-value");
   }
+
+  syncMonthMenuState();
 }
 
 function hasInvalidLeadingZero(value) {
@@ -385,12 +937,16 @@ function setTodayDate() {
   const today = getTodayLocalDate();
   dateInput.max = today;
   dateInput.value = today;
+  datePickerViewDate = getDateFromInputValue(today);
 
   if (dateInput.value) {
     dateInput.classList.add("has-value");
   } else {
     dateInput.classList.remove("has-value");
   }
+
+  syncExpenseDateControl();
+  renderExpenseDatePicker();
 }
 
 function getSortedCategoryEntries() {
@@ -536,7 +1092,7 @@ function createExpenseRow(expense, index) {
       data-index="${index}"
       contenteditable="${editableValue}"
     >
-      ${escapeHtml(expense.amount)}
+      <span class="cell-text">${escapeHtml(expense.amount)}</span>
     </td>
 
     <td class="category-cell ${lockedClass}">
@@ -556,7 +1112,7 @@ function createExpenseRow(expense, index) {
       data-index="${index}"
       contenteditable="${editableValue}"
     >
-      ${escapeHtml(formatDateDisplay(expense.date) || "")}
+      <span class="cell-text">${escapeHtml(formatDateDisplay(expense.date) || "")}</span>
     </td>
 
    <td
@@ -565,7 +1121,7 @@ function createExpenseRow(expense, index) {
       data-index="${index}"
       contenteditable="${editableValue}"
     >
-      ${escapeHtml(expense.description || "")}
+      <span class="cell-text">${escapeHtml(expense.description || "")}</span>
     </td>
 
     <td class="actions-cell">
@@ -758,107 +1314,179 @@ function updateCategoryTotals() {
 
 function renderPieChart() {
   const entries = getSortedCategoryEntries();
+  const overview = document.getElementById("pie-overview");
+  const subtitle = document.getElementById("pie-subtitle");
 
   if (entries.length === 0) {
     if (pieChart) {
       pieChart.destroy();
       pieChart = null;
     }
+
+    const tooltipEl = document.getElementById("pie-chart-tooltip");
+    if (tooltipEl) {
+      tooltipEl.classList.remove("is-visible", "is-right", "is-left");
+    }
+
+    if (overview) {
+      overview.innerHTML = `<div class="pie-overview-empty">No category data yet</div>`;
+    }
+
+    if (subtitle) {
+      subtitle.textContent = "Spending share by category";
+    }
+
     return;
   }
 
   const categoryColors = {
-    Food: "#F59E0B",
-    Bills: "#10B981",
-    Transport: "#3B82F6",
-    Leisure: "#EF4444",
-    Shopping: "#EC4899"
+    Food: "#58E66F",
+    Transport: "#38BDF8",
+    Bills: "#FBBF24",
+    Leisure: "#A78BFA",
+    Shopping: "#FB7185",
+    Uncategorized: "#CBD5E1"
   };
 
   const labels = entries.map(([category]) => category);
   const data = entries.map(([, total]) => total);
-  const backgroundColor = labels.map(label => categoryColors[label] || "#ccc");
+  const backgroundColor = labels.map(label => categoryColors[label] || "#94A3B8");
+  const total = data.reduce((sum, value) => sum + value, 0);
 
-  const ctx = document.getElementById("pieChart");
-  if (!ctx) return;
+  if (subtitle) {
+    subtitle.textContent = `${formatCurrency(total)} total across ${entries.length} ${entries.length === 1 ? "category" : "categories"}`;
+  }
+
+  // Keep percentages visible beside the chart, so the breakdown is readable
+  // without needing to hover every doughnut slice.
+  if (overview) {
+    overview.innerHTML = entries.map(([category, value]) => {
+      const percentage = total ? (value / total) * 100 : 0;
+      const color = categoryColors[category] || "#94A3B8";
+
+      return `
+        <div class="pie-overview-item">
+          <div class="pie-overview-topline">
+            <span class="pie-overview-label">
+              <span class="pie-overview-dot" style="background:${color}"></span>
+              ${escapeHtml(category)}
+            </span>
+            <strong>${percentage.toFixed(0)}%</strong>
+          </div>
+          <div class="pie-overview-value">${formatCurrency(value)}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  const canvas = document.getElementById("pieChart");
+  if (!canvas) return;
 
   if (pieChart) pieChart.destroy();
 
-  pieChart = new Chart(ctx, {
-    type: "pie",
+  const centerTextPlugin = {
+    id: "centerText",
+    afterDraw(chart) {
+      const { ctx, chartArea } = chart;
+      if (!chartArea) return;
+
+      const centerX = (chartArea.left + chartArea.right) / 2;
+      const centerY = (chartArea.top + chartArea.bottom) / 2;
+      const compactTotal = new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        notation: "compact",
+        maximumFractionDigits: 1
+      }).format(total);
+
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.fillStyle = "#111827";
+      ctx.font = "700 19px Inter, Arial, sans-serif";
+      ctx.fillText(compactTotal, centerX, centerY - 7);
+
+      ctx.fillStyle = "#8A948F";
+      ctx.font = "500 11px Inter, Arial, sans-serif";
+      ctx.fillText("Total", centerX, centerY + 15);
+
+      ctx.restore();
+    }
+  };
+
+  pieChart = new Chart(canvas, {
+    type: "doughnut",
     data: {
       labels,
       datasets: [{
         data,
         backgroundColor,
-        borderWidth: 0
+        hoverBackgroundColor: backgroundColor,
+        borderColor: "rgba(255, 255, 255, 0.96)",
+        borderWidth: 4,
+        hoverBorderWidth: 4,
+        hoverOffset: 4,
+        spacing: 3,
+        borderRadius: 12,
+
+        // Balanced size: large enough to read but not so large that the
+        // percentage overview drops below the chart.
+        cutout: "73%",
+        radius: "92%"
       }]
     },
-    plugins: [{
-      id: "sliceLabels",
-      afterDatasetsDraw(chart) {
-        const { ctx } = chart;
-        const meta = chart.getDatasetMeta(0);
-        const total = data.reduce((sum, value) => sum + value, 0);
-
-        const rootStyles = getComputedStyle(document.documentElement);
-        const pieLabelColor = rootStyles.getPropertyValue("--pie-label-color").trim() || "#ffffff";
-        const pieLabelFontFamily = rootStyles.getPropertyValue("--pie-label-font-family").trim() || "Inter, Arial, sans-serif";
-        const pieLabelFontWeight = rootStyles.getPropertyValue("--pie-label-font-weight").trim() || "700";
-        const pieLabelFontSize = parseInt(rootStyles.getPropertyValue("--pie-label-font-size"), 10) || 14;
-        const pieLabelFontSizeSmall = parseInt(rootStyles.getPropertyValue("--pie-label-font-size-small"), 10) || 10;
-
-        ctx.save();
-        ctx.fillStyle = pieLabelColor;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-
-        meta.data.forEach((slice, index) => {
-          const value = data[index];
-          const percentage = total ? (value / total) * 100 : 0;
-
-          const fontSize = percentage < 8 ? pieLabelFontSizeSmall : pieLabelFontSize;
-          ctx.font = `${pieLabelFontWeight} ${fontSize}px ${pieLabelFontFamily}`;
-
-          const angle = (slice.startAngle + slice.endAngle) / 2;
-          const radius = slice.outerRadius * 0.62;
-          const x = slice.x + Math.cos(angle) * radius;
-          const y = slice.y + Math.sin(angle) * radius;
-
-          ctx.fillText(`${percentage.toFixed(0)}%`, x, y);
-        });
-
-        ctx.restore();
-      }
-    }],
+    plugins: [centerTextPlugin],
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+      animation: {
+        animateRotate: true,
+        duration: 850,
+        easing: "easeOutQuart"
+      },
       layout: {
         padding: {
-          bottom: 18
+          top: 12,
+          right: 22,
+          bottom: 12,
+          left: 22
         }
       },
       plugins: {
         legend: {
-          position: "bottom",
-          labels: {
-            padding: 28,
-            usePointStyle: false
-          }
+          display: false
         },
         tooltip: {
-          displayColors: false,
-          callbacks: {
-            title: () => "",
-            label: function(context) {
-              return `${context.label}: ${formatCurrency(context.raw)}`;
+          // Custom HTML tooltip avoids the center total and keeps a pointer tip.
+          enabled: false,
+          external: externalPieTooltip,
+
+          animations: {
+            numbers: {
+              duration: 650,
+              easing: "easeOutCubic"
             }
-          }
+          },
+
+          caretSize: 8,
+          caretPadding: 8,
+          displayColors: true,
+          boxPadding: 6,
+          backgroundColor: "rgba(17, 24, 39, 0.94)",
+          titleColor: "#FFFFFF",
+          bodyColor: "#FFFFFF",
+          borderColor: "rgba(255, 255, 255, 0.12)",
+          borderWidth: 1,
+          cornerRadius: 12,
+          padding: 12,
         }
       }
     }
   });
 }
+
+
 
 function renderChart() {
   const monthlyTotals = {};
@@ -884,18 +1512,21 @@ function renderChart() {
   });
 
   const data = sorted.map(([, total]) => total);
-
-  const average =
-    data.length > 0
-      ? data.reduce((sum, value) => sum + value, 0) / data.length
-      : 0;
-
+  const total = data.reduce((sum, value) => sum + value, 0);
+  const average = data.length ? total / data.length : 0;
   const averageLine = labels.map(() => average);
 
-  const ctx = document.getElementById("categoryChart");
+  const canvas = document.getElementById("categoryChart");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
   if (categoryChart) categoryChart.destroy();
+
+  const lineGradient = ctx.createLinearGradient(0, 0, canvas.clientWidth || 1000, 0);
+  lineGradient.addColorStop(0, "#58E66F");
+  lineGradient.addColorStop(1, "#48DDB6");
 
   categoryChart = new Chart(ctx, {
     type: "line",
@@ -905,24 +1536,38 @@ function renderChart() {
         {
           label: "Monthly Spending",
           data,
-          borderColor: "#2ecc71",
-          backgroundColor: "rgba(54, 227, 112, 0.1)",
-          tension: 0.35,
-          fill: true,
-          pointRadius: 4,
-          pointHoverRadius: 6,
-          pointBackgroundColor: "#2ecc71",
-          pointBorderColor: "#2ecc71",
-          borderWidth: 3
+          borderColor: lineGradient,
+          backgroundColor: "rgba(72, 221, 182, 0.08)",
+
+          // A lower tension keeps the curve modern without exaggerating the line.
+          tension: data.length > 2 ? 0.18 : 0,
+          cubicInterpolationMode: "monotone",
+          fill: false,
+
+          // Prevents first/last hover circles from being clipped.
+          clip: false,
+
+          pointRadius: data.length === 1 ? 5 : 0,
+          pointHoverRadius: 7,
+          pointBackgroundColor: "#FFFFFF",
+          pointBorderColor: "#48DDB6",
+          pointBorderWidth: 3,
+          pointHoverBorderWidth: 4,
+          hitRadius: 14,
+
+          borderWidth: 2.8
         },
         {
-          label: "Average Monthly Spending",
+          label: "Average",
           data: averageLine,
-          borderColor: "#EF4444",
-          borderDash: [6, 6],
+          borderColor: "rgba(245, 158, 11, 0.95)",
+          backgroundColor: "rgba(245, 158, 11, 0.12)",
+          borderDash: [5, 6],
+          tension: 0,
+          fill: false,
+          clip: false,
           pointRadius: 0,
           pointHoverRadius: 0,
-          fill: false,
           borderWidth: 2
         }
       ]
@@ -930,27 +1575,67 @@ function renderChart() {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: {
+        duration: 850,
+        easing: "easeOutQuart"
+      },
+      interaction: {
+        mode: "nearest",
+        intersect: false
+      },
       layout: {
         padding: {
-          top: 8,
-          right: 6,
+          top: 18,
+          right: 18,
           bottom: 8,
-          left: 6
+          left: 18
         }
       },
       plugins: {
         legend: {
           display: true,
+          align: "center",
+
+          // Prevents Chart.js from hiding lines and striking legend labels.
+          onClick: () => {},
+
           labels: {
             usePointStyle: true,
+            pointStyle: "circle",
             boxWidth: 8,
             boxHeight: 8,
-            padding: 18
+            padding: 18,
+            color: "#7B857F",
+            font: {
+              family: "Inter, Arial, sans-serif",
+              size: 12,
+              weight: "500"
+            }
           }
         },
         tooltip: {
+          enabled: true,
+
+          // Anchors the tooltip to the hovered point.
+          position: "monthlyPoint",
+          xAlign: "center",
+          yAlign: "bottom",
+          caretPadding: 8,
+          caretSize: 8,
+
+          backgroundColor: "rgba(17, 24, 39, 0.96)",
+          titleColor: "#FFFFFF",
+          bodyColor: "#FFFFFF",
+          borderColor: "rgba(255, 255, 255, 0.12)",
+          borderWidth: 1,
+          cornerRadius: 12,
+          padding: 12,
+          displayColors: false,
           callbacks: {
-            label: function(context) {
+            title(context) {
+              return context?.[0]?.label || "";
+            },
+            label(context) {
               return `${context.dataset.label}: ${formatCurrency(context.raw)}`;
             }
           }
@@ -958,34 +1643,65 @@ function renderChart() {
       },
       scales: {
         x: {
+          // Keeps the line stretched across the x-axis instead of centered/narrow.
           offset: false,
+          bounds: "ticks",
           ticks: {
-            padding: 14,
+            align: "inner",
+            padding: 12,
             maxRotation: 0,
             minRotation: 0,
-            align: "inner"
+            color: "#8A948F",
+            font: {
+              family: "Inter, Arial, sans-serif",
+              size: 12,
+              weight: "500"
+            }
           },
           grid: {
             display: false,
-            drawBorder: false
+            drawBorder: false,
+            offset: false
+          },
+          border: {
+            display: false
           }
         },
         y: {
           beginAtZero: true,
+          grace: "10%",
           ticks: {
             padding: 10,
-            callback: function(value) {
-              return formatCurrency(Number(value));
+            color: "#8A948F",
+            font: {
+              family: "Inter, Arial, sans-serif",
+              size: 12,
+              weight: "500"
+            },
+            callback(value) {
+              return new Intl.NumberFormat("en-US", {
+                style: "currency",
+                currency: "USD",
+                notation: "compact",
+                maximumFractionDigits: 1
+              }).format(Number(value));
             }
           },
           grid: {
-            drawBorder: false
+            color: "rgba(148, 163, 184, 0.12)",
+            drawBorder: false,
+            borderDash: [4, 6]
+          },
+          border: {
+            display: false
           }
         }
       }
     }
   });
 }
+
+
 
 function renderExpenses() {
   expenseBody.innerHTML = "";
@@ -1093,6 +1809,8 @@ async function addExpense() {
     return;
   }
 
+  const typedDateIsValid = syncTypedDateToHidden(true);
+
   const expenseName = expenseNameInput.value.trim();
   const amountRaw = amountInput.value;
   const amount = amountRaw === "" ? null : Number(amountRaw);
@@ -1135,7 +1853,9 @@ async function addExpense() {
     amountInput.classList.remove("error");
   }
 
-  if (dateInput.value === "" || dateInput.value == null) {
+  if (!typedDateIsValid) {
+    hasError = true;
+  } else if (dateInput.value === "" || dateInput.value == null) {
     dateError.textContent = "Please select a date";
     dateInput.classList.add("error");
     hasError = true;
@@ -1146,6 +1866,8 @@ async function addExpense() {
   } else {
     dateInput.classList.remove("error");
   }
+
+  syncExpenseDateControl();
 
   if (!description) {
     descError.textContent = "Please enter a description";
@@ -1172,7 +1894,6 @@ async function addExpense() {
 
     const createResponse = await createExpenseInDatabase(expenseToSave);
     newlyAddedExpenseId = getCreatedExpenseId(createResponse);
-    currentPage = 1;
 
     await loadExpenses();
 
@@ -1186,8 +1907,15 @@ async function addExpense() {
       );
 
       newlyAddedExpenseId = matchingExpense?.id ?? null;
+    }
 
-      if (newlyAddedExpenseId != null) {
+    // After the saved expenses reload, move to the actual page where the
+    // newly added row belongs based on the current sort/filter/search state.
+    // This prevents old-dated expenses from being highlighted on a hidden page.
+    if (newlyAddedExpenseId != null) {
+      const foundNewExpensePage = jumpToExpensePage(newlyAddedExpenseId);
+
+      if (foundNewExpensePage) {
         renderExpenses();
       }
     }
@@ -1200,6 +1928,17 @@ async function addExpense() {
         block: "start"
       });
     }
+
+    requestAnimationFrame(() => {
+      const highlightedRow = document.querySelector("#expense-table tr.new-expense-row");
+
+      if (highlightedRow) {
+        highlightedRow.scrollIntoView({
+          behavior: "smooth",
+          block: "center"
+        });
+      }
+    });
 
     if (highlightTimeoutId) {
       clearTimeout(highlightTimeoutId);
@@ -1356,6 +2095,8 @@ function resetDashboardView() {
   const sortSelect = document.getElementById("sort-select");
   if (sortSelect) {
     sortSelect.value = "added-desc";
+    currentSort = "added-desc";
+    syncSortMenuState();
   }
 
   if (monthFilterInput) {
@@ -1365,6 +2106,12 @@ function resetDashboardView() {
 
   expenseNameInput.value = "";
   amountInput.value = "";
+
+  if (categoryInput) {
+    categoryInput.selectedIndex = 0;
+    syncAddExpenseCategoryMenu();
+  }
+
   descInput.value = "";
   descCounter.textContent = `0/${DESCRIPTION_LIMIT}`;
 
@@ -1376,6 +2123,7 @@ function resetDashboardView() {
   expenseNameInput.classList.remove("error");
   amountInput.classList.remove("error");
   dateInput.classList.remove("error");
+  syncExpenseDateControl();
   descInput.classList.remove("error");
 
   const amountHelper = document.getElementById("amount-helper");
@@ -1394,8 +2142,57 @@ function resetDashboardView() {
   });
 }
 
-function logout() {
+function renderAuthState() {
+  const profile = document.querySelector(".profile");
+  const dropdown = document.querySelector(".dropdown");
+  const username = document.querySelector(".username");
+  const arrow = document.querySelector(".arrow");
+  const profilePic = document.querySelector(".profile-pic");
+
+  if (!profile || !usernameWrapper) return;
+
+  if (isLoggedIn) {
+    profile.classList.remove("logged-out");
+    profile.classList.remove("menu-open");
+
+    usernameWrapper.classList.remove("login-header-btn");
+    usernameWrapper.classList.remove("active");
+    usernameWrapper.setAttribute("aria-expanded", "false");
+    usernameWrapper.setAttribute("role", "button");
+    usernameWrapper.setAttribute("tabindex", "0");
+
+    if (username) username.textContent = "Marsi";
+    if (arrow) arrow.hidden = false;
+    if (dropdown) dropdown.hidden = false;
+    if (profilePic) profilePic.hidden = false;
+
+    return;
+  }
+
+  profile.classList.add("logged-out");
+  profile.classList.remove("menu-open");
+
+  usernameWrapper.classList.remove("active");
+  usernameWrapper.classList.add("login-header-btn");
+  usernameWrapper.setAttribute("aria-expanded", "false");
+  usernameWrapper.setAttribute("role", "button");
+  usernameWrapper.setAttribute("tabindex", "0");
+
+  if (username) username.textContent = "Login";
+  if (arrow) arrow.hidden = true;
+  if (dropdown) dropdown.hidden = true;
+  if (profilePic) profilePic.hidden = true;
+}
+
+function logout(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
   isLoggedIn = false;
+
+  closeProfileMenu();
   clearStatus();
   renderAuthState();
   showAppToast("Logged out successfully.");
@@ -1472,17 +2269,6 @@ function handleTableClick(event) {
   }
 }
 
-function closeUsernameMenuOnOutsideClick(event) {
-  if (!usernameWrapper) return;
-
-  const profile = document.querySelector(".profile");
-
-  if (profile && profile.contains(event.target)) return;
-
-  usernameWrapper.classList.remove("active");
-  usernameWrapper.setAttribute("aria-expanded", "false");
-}
-
 // ---------- Static event binding ----------
 function bindEvents() {
   addBtn.addEventListener("click", addExpense);
@@ -1525,6 +2311,27 @@ function bindEvents() {
     }
   });
 
+
+  if (categoryInput) {
+    categoryInput.addEventListener("change", syncAddExpenseCategoryMenu);
+  }
+
+  if (addExpenseCategoryMenu) {
+    addExpenseCategoryMenu.addEventListener("click", (event) => {
+      const option = event.target.closest(".add-expense-category-option");
+      if (!option) return;
+
+      setAddExpenseCategoryValue(option.dataset.categoryValue || "");
+      closeToolbarMenus();
+    });
+
+    addExpenseCategoryMenu.addEventListener("toggle", () => {
+      if (addExpenseCategoryMenu.open) {
+        closeToolbarMenus(addExpenseCategoryMenu);
+      }
+    });
+  }
+
   const appToastCloseBtn = document.getElementById("app-toast-close");
   if (appToastCloseBtn) {
     appToastCloseBtn.addEventListener("click", hideAppToast);
@@ -1538,13 +2345,38 @@ function bindEvents() {
       currentFilter = btn.dataset.category;
       currentPage = 1;
       renderExpenses();
+
+      closeToolbarMenus();
     });
   });
 
-  document.getElementById("sort-select").addEventListener("change", (e) => {
-    currentSort = e.target.value;
-    currentPage = 1;
-    renderExpenses();
+  const sortSelect = document.getElementById("sort-select");
+  if (sortSelect) {
+    sortSelect.addEventListener("change", (e) => {
+      currentSort = e.target.value;
+      currentPage = 1;
+      syncSortMenuState();
+      renderExpenses();
+    });
+  }
+
+  document.querySelectorAll(".sort-option").forEach(option => {
+    option.addEventListener("click", () => {
+      const value = option.dataset.sortValue;
+      const select = document.getElementById("sort-select");
+
+      if (select) {
+        select.value = value;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        currentSort = value;
+        currentPage = 1;
+        syncSortMenuState();
+        renderExpenses();
+      }
+
+      closeToolbarMenus();
+    });
   });
 
   monthFilterInput.addEventListener("change", (e) => {
@@ -1555,12 +2387,47 @@ function bindEvents() {
   });
 
   clearMonthBtn.addEventListener("click", () => {
+    currentFilter = "All";
+    currentSort = "added-desc";
     currentMonthFilter = "All";
-    monthFilterInput.value = "";
+    currentSearch = "";
+    pendingSearch = "";
     currentPage = 1;
-    syncMonthFilterState();
+
+    if (expenseSearchInput) {
+      expenseSearchInput.value = "";
+    }
+
+    if (searchIconBtn) {
+      searchIconBtn.disabled = true;
+    }
+
+    document.querySelectorAll(".filter-btn").forEach(btn => {
+      btn.classList.toggle("active", btn.dataset.category === "All");
+    });
+
+    const sortSelect = document.getElementById("sort-select");
+    if (sortSelect) {
+      sortSelect.value = "added-desc";
+    }
+
+    if (monthFilterInput) {
+      monthFilterInput.value = "";
+    }
+
+    syncSortMenuState();
+    syncMonthMenuState();
+    closeToolbarMenus();
     renderExpenses();
   });
+
+  if (monthMenuPanel) {
+    monthMenuPanel.addEventListener("click", (event) => {
+      const option = event.target.closest(".month-option");
+      if (!option) return;
+      setMonthFilterValue(option.dataset.monthValue || "");
+    });
+  }
 
   editTableBtn.addEventListener("click", async () => {
     if (!isEditMode) {
@@ -1633,6 +2500,30 @@ function bindEvents() {
     }
   });
 
+
+  if (dateManualInput) {
+    dateManualInput.addEventListener("input", () => {
+      dateManualInput.classList.remove("error");
+      dateInput.classList.remove("error");
+      if (dateError) dateError.textContent = "";
+
+      // Do not show errors on every keystroke. Sync quietly when the date becomes valid.
+      syncTypedDateToHidden(false);
+    });
+
+    dateManualInput.addEventListener("blur", () => {
+      syncTypedDateToHidden(Boolean(dateManualInput.value.trim()));
+    });
+
+    dateManualInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        syncTypedDateToHidden(true);
+        dateManualInput.blur();
+      }
+    });
+  }
+
   dateInput.addEventListener("input", () => {
     const value = dateInput.value;
     const today = getTodayLocalDate();
@@ -1643,12 +2534,14 @@ function bindEvents() {
     if (!value) {
       dateError.textContent = "Please select a valid date";
       dateInput.classList.add("error");
+      syncExpenseDateControl();
       return;
     }
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
       dateError.textContent = "Use format YYYY-MM-DD";
       dateInput.classList.add("error");
+      syncExpenseDateControl();
       return;
     }
 
@@ -1661,18 +2554,92 @@ function bindEvents() {
     ) {
       dateError.textContent = "Please enter a valid calendar date";
       dateInput.classList.add("error");
+      syncExpenseDateControl();
       return;
     }
 
     if (value > today) {
       dateError.textContent = "Date cannot be after today";
       dateInput.classList.add("error");
+      syncExpenseDateControl();
       return;
     }
 
     dateError.textContent = "";
     dateInput.classList.remove("error");
+    syncExpenseDateControl();
   });
+
+  document.querySelectorAll(".toolbar-menu").forEach(menu => {
+    menu.addEventListener("toggle", () => {
+      if (menu.open) closeToolbarMenus(menu);
+    });
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const clickedInsideMenu = event.target.closest(".toolbar-menu, .date-picker, .dropdown, .username-wrapper");
+    if (!clickedInsideMenu) {
+      closeToolbarMenus();
+      closeProfileMenu();
+    }
+  }, true);
+
+  document.addEventListener("click", (event) => {
+    const clickedInsideMenu = event.target.closest(".toolbar-menu, .date-picker, .dropdown, .username-wrapper");
+    if (!clickedInsideMenu) {
+      closeToolbarMenus();
+      closeProfileMenu();
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeToolbarMenus();
+      closeProfileMenu();
+    }
+  });
+
+  if (datePickerGrid) {
+    datePickerGrid.addEventListener("click", (event) => {
+      const dayButton = event.target.closest(".date-day[data-date-value]");
+      if (!dayButton || dayButton.disabled) return;
+      setExpenseDateValue(dayButton.dataset.dateValue);
+    });
+  }
+
+  if (datePrevMonthBtn) {
+    datePrevMonthBtn.addEventListener("click", () => {
+      const base = datePickerViewDate || getDateFromInputValue(dateInput.value) || getDateFromInputValue(getTodayLocalDate());
+      datePickerViewDate = new Date(base.getFullYear(), base.getMonth() - 1, 1);
+      renderExpenseDatePicker();
+    });
+  }
+
+  if (dateNextMonthBtn) {
+    dateNextMonthBtn.addEventListener("click", () => {
+      const base = datePickerViewDate || getDateFromInputValue(dateInput.value) || getDateFromInputValue(getTodayLocalDate());
+      datePickerViewDate = new Date(base.getFullYear(), base.getMonth() + 1, 1);
+      renderExpenseDatePicker();
+    });
+  }
+
+  if (datePickerTodayBtn) {
+    datePickerTodayBtn.addEventListener("click", () => {
+      const today = getTodayLocalDate();
+      datePickerViewDate = getDateFromInputValue(today);
+      setExpenseDateValue(today);
+    });
+  }
+
+  if (datePicker) {
+    datePicker.addEventListener("toggle", () => {
+      if (datePicker.open) {
+        closeToolbarMenus(datePicker);
+        datePickerViewDate = getDateFromInputValue(dateInput.value) || getDateFromInputValue(getTodayLocalDate());
+        renderExpenseDatePicker();
+      }
+    });
+  }
 
   if (prevPageBtn) {
     prevPageBtn.addEventListener("click", () => {
@@ -1695,15 +2662,24 @@ function bindEvents() {
   }
 
   if (usernameWrapper) {
-    usernameWrapper.addEventListener("click", () => {
+    usernameWrapper.addEventListener("click", (event) => {
+      event.stopPropagation();
+    
       if (!isLoggedIn) {
         showAppToast("Login flow is not connected in this preview.");
         return;
       }
-  
+    
+      const profile = usernameWrapper.closest(".profile");
       const expanded = usernameWrapper.getAttribute("aria-expanded") === "true";
-      usernameWrapper.setAttribute("aria-expanded", String(!expanded));
-      usernameWrapper.classList.toggle("active");
+      const nextExpanded = !expanded;
+    
+      usernameWrapper.setAttribute("aria-expanded", String(nextExpanded));
+      usernameWrapper.classList.toggle("active", nextExpanded);
+    
+      if (profile) {
+        profile.classList.toggle("menu-open", nextExpanded);
+      }
     });
   
     usernameWrapper.addEventListener("keydown", (event) => {
@@ -1715,7 +2691,12 @@ function bindEvents() {
   }
 
   if (logoutBtn) {
-    logoutBtn.addEventListener("click", logout);
+    // Use pointerdown so logout still runs before the dropdown can lose focus/close.
+    logoutBtn.addEventListener("pointerdown", logout);
+    logoutBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+    });
   }
 
   if (expenseBody) {
@@ -1732,8 +2713,6 @@ function bindEvents() {
       cell.classList.remove("editing");
     }
   });
-
-  document.addEventListener("click", closeUsernameMenuOnOutsideClick);
 
   window.addEventListener("scroll", handleHeaderFade);
 }
@@ -1759,7 +2738,9 @@ if (searchIconBtn) {
   searchIconBtn.disabled = true;
 }
 
+buildMonthMenuOptions();
+syncSortMenuState();
 setTodayDate();
 syncMonthFilterState();
-renderAuthState();
 loadExpenses();
+renderAuthState();
