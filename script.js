@@ -1522,6 +1522,14 @@ function renderChart() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
+  const chartWidth = canvas.parentElement?.clientWidth || window.innerWidth;
+
+  const xTickLimit =
+    chartWidth < 520 ? 4 :
+    chartWidth < 760 ? 5 :
+    chartWidth < 1100 ? 7 :
+    9;
+
   if (categoryChart) categoryChart.destroy();
 
   const lineGradient = ctx.createLinearGradient(0, 0, canvas.clientWidth || 1000, 0);
@@ -1647,6 +1655,8 @@ function renderChart() {
           offset: false,
           bounds: "ticks",
           ticks: {
+            autoSkip: true,
+            maxTicksLimit: xTickLimit,
             align: "inner",
             padding: 12,
             maxRotation: 0,

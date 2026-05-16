@@ -5117,3 +5117,99 @@ main,
         top 0.32s ease !important;
     will-change: left, top, transform, opacity;
 }
+
+/* ---------- Responsive table ellipsis fix ---------- */
+
+/* Keep table cells from visually breaking when the layout gets narrow */
+#expense-table th,
+#expense-table td {
+    min-width: 0 !important;
+}
+
+/* Make all regular table text truncate cleanly */
+#expense-table th .th-text,
+#expense-table td .cell-text,
+#expense-table td.category-cell select {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    text-overflow: ellipsis !important;
+}
+
+/* Make title, description, and category cells behave more predictably */
+#expense-table td.title-cell,
+#expense-table td.description-cell,
+#expense-table td.category-cell {
+    min-width: 0 !important;
+}
+
+/* Prevent the table from forcing the page wider than the card */
+.expense-table-panel {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+}
+
+/* Keep the table usable on narrower screens */
+#expense-table {
+    min-width: 860px !important;
+}
+
+/* Responsive adjustments for tablet-sized screens */
+@media (max-width: 1024px) {
+    #expense-table {
+        min-width: 820px !important;
+    }
+
+    #expense-table th,
+    #expense-table td {
+        padding-left: 12px !important;
+        padding-right: 12px !important;
+    }
+
+    #expense-table th:first-child,
+    #expense-table td:first-child,
+    #expense-table td.title-cell {
+        padding-left: 20px !important;
+    }
+
+    #expense-table th.actions-header,
+    #expense-table td.actions-cell {
+        padding-right: 20px !important;
+    }
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 760px) {
+    .expense-table-panel {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    #expense-table {
+        min-width: 780px !important;
+    }
+
+    #expense-table th,
+    #expense-table td {
+        font-size: 13px !important;
+    }
+
+    #expense-table td .cell-text,
+    #expense-table td.category-cell select {
+        font-size: 13px !important;
+    }
+}
+
+/* ---------- Expense table column width adjustment ---------- */
+
+/* Make Title narrower and Description wider */
+#expense-table th:first-child,
+#expense-table td:first-child {
+    width: 24% !important;
+}
+
+#expense-table th:nth-child(5),
+#expense-table td:nth-child(5) {
+    width: 28% !important;
+}
