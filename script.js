@@ -18,6 +18,7 @@ let isEditMode = false;
 let newlyAddedExpenseId = null;
 let highlightTimeoutId = null;
 let appToastTimeoutId = null;
+let tableActionHighlightTimeoutId = null;
 let activeEditCell = null;
 let isLoggedIn = true;
 
@@ -26,6 +27,7 @@ const expenseNameInput = document.getElementById("expenseName");
 const amountInput = document.getElementById("amount");
 const categoryInput = document.getElementById("category");
 const addBtn = document.getElementById("add-btn");
+let addExpenseModeError = document.getElementById("add-expense-mode-error");
 const expenseNameError = document.getElementById("expenseName-error");
 const amountError = document.getElementById("amount-error");
 const dateInput = document.getElementById("date");
@@ -122,7 +124,6 @@ function ensureTypedDateInput() {
   }
 }
 
-
 /**
  * Builds a custom dropdown for the Add Expense category field.
  *
@@ -174,7 +175,6 @@ function ensureAddExpenseCategoryMenu() {
   buildAddExpenseCategoryOptions();
   syncAddExpenseCategoryMenu();
 }
-
 
 /**
  * Rebuilds custom category options from the native #category select.
@@ -236,7 +236,6 @@ function setAddExpenseCategoryValue(value) {
 
 ensureTypedDateInput();
 ensureAddExpenseCategoryMenu();
-
 
 // ---------- Helpers ----------
 function cloneExpenses(expenseList) {
@@ -364,7 +363,6 @@ function closeToolbarMenus(except = null) {
   });
 }
 
-
 function closeProfileMenu() {
   if (!usernameWrapper) return;
 
@@ -378,13 +376,6 @@ function closeProfileMenu() {
   }
 }
 
-
-/**
- * Chart tooltip helpers
- *
- * These custom Chart.js tooltip positioners keep tooltips close to the hovered
- * chart item while preserving native Chart.js tooltip pointers/caret tips.
- */
 /**
  * Chart tooltip helpers
  *
@@ -458,8 +449,6 @@ function externalPieTooltip(context) {
   const directionY = Math.sin(angle);
   const canvasRect = chart.canvas.getBoundingClientRect();
 
-  // Horizontal distance keeps the tooltip outside the ring.
-  // A small vertical adjustment keeps it visually tied to the hovered slice.
   const tooltipX = canvasRect.left + window.scrollX + arc.x + directionX * (arc.outerRadius + 22);
   const tooltipY = canvasRect.top + window.scrollY + arc.y + directionY * Math.min(arc.outerRadius * 0.42, 46);
 
@@ -483,6 +472,7 @@ function externalPieTooltip(context) {
   tooltipEl.classList.toggle("is-left", directionX < 0);
   tooltipEl.classList.add("is-visible");
 }
+
 function syncSortMenuState() {
   const sortValue = document.getElementById("sort-select")?.value || currentSort || "added-desc";
 
@@ -724,6 +714,52 @@ function escapeHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
+/**
+ * Creates an inline Add Expense warning if the HTML does not already include one.
+ * This keeps the warning close to the Add Expense button instead of relying only
+ * on the top status banner, which may be off-screen.
+ */
+function ensureAddExpenseModeError() {
+  if (addExpenseModeError || !addBtn) return;
+
+  const error = document.createElement("p");
+  error.id = "add-expense-mode-error";
+  error.className = "error-text add-expense-mode-error";
+  error.hidden = true;
+  error.setAttribute("role", "alert");
+  error.setAttribute("aria-live", "polite");
+
+  const buttonSection = addBtn.closest(".button-section") || addBtn.parentElement;
+
+  if (buttonSection) {
+    buttonSection.insertAdjacentElement("afterend", error);
+  }
+
+  addExpenseModeError = error;
+}
+
+function showAddExpenseModeError(message) {
+  ensureAddExpenseModeError();
+
+  if (addExpenseModeError) {
+    addExpenseModeError.textContent = message;
+    addExpenseModeError.hidden = false;
+  }
+
+  // No heading here: this is a guided warning, not a system failure.
+  showAppToast(message, "error", {
+    label: "Go to table edits",
+    onClick: scrollToTableEditActions
+  });
+}
+
+function clearAddExpenseModeError() {
+  if (!addExpenseModeError) return;
+
+  addExpenseModeError.textContent = "";
+  addExpenseModeError.hidden = true;
+}
+
 function showStatus(message, type = "error") {
   if (!statusMessage) return;
 
@@ -755,13 +791,128 @@ function clearStatus() {
   statusMessage.className = "status-message";
 }
 
-function showAppToast(message) {
+function ensureToastActionButton(toast) {
+  let actionBtn = document.getElementById("app-toast-action");
+
+  if (actionBtn) return actionBtn;
+
+  actionBtn = document.createElement("button");
+  actionBtn.id = "app-toast-action";
+  actionBtn.className = "app-toast-action";
+  actionBtn.type = "button";
+  actionBtn.hidden = true;
+
+  const closeBtn = document.getElementById("app-toast-close");
+
+  if (closeBtn) {
+    toast.insertBefore(actionBtn, closeBtn);
+  } else {
+    toast.appendChild(actionBtn);
+  }
+
+  return actionBtn;
+}
+
+function highlightTableEditActions() {
+  if (!editTableBtn) return;
+
+  editTableBtn.classList.add("table-action-attention");
+
+  if (tableActionHighlightTimeoutId) {
+    clearTimeout(tableActionHighlightTimeoutId);
+  }
+
+  tableActionHighlightTimeoutId = setTimeout(() => {
+    editTableBtn.classList.remove("table-action-attention");
+    tableActionHighlightTimeoutId = null;
+  }, 2800);
+}
+
+function scrollToTableEditActions() {
+  const target = document.querySelector(".table-actions") || tableSection;
+
+  if (target) {
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "center"
+    });
+  }
+
+  setTimeout(() => {
+    highlightTableEditActions();
+
+    if (editTableBtn) {
+      editTableBtn.focus({ preventScroll: true });
+    }
+  }, 450);
+}
+
+function showAppToast(message, type = "success", action = null, title = null) {
   const toast = document.getElementById("app-toast");
   const messageEl = document.getElementById("app-toast-message");
+  const iconEl = document.getElementById("app-toast-icon");
 
   if (!toast || !messageEl) return;
 
-  messageEl.textContent = message;
+  const actionBtn = ensureToastActionButton(toast);
+  const hasAction = Boolean(action?.label && typeof action.onClick === "function");
+
+  // Generic system/server errors get a heading.
+  // Guided error toasts with an action, such as "Go to table edits", stay title-free.
+  const toastTitle =
+    title ??
+    (type === "error" && !hasAction ? "Something went wrong" : "");
+
+  messageEl.innerHTML = "";
+
+  if (toastTitle) {
+    const titleEl = document.createElement("div");
+    titleEl.className = "app-toast-title";
+    titleEl.textContent = toastTitle;
+    messageEl.appendChild(titleEl);
+  }
+
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "app-toast-body";
+  bodyEl.textContent = message;
+  messageEl.appendChild(bodyEl);
+
+  toast.classList.remove("success", "error", "has-action");
+  toast.classList.add(type);
+
+  if (hasAction) {
+    toast.classList.add("has-action");
+  }
+
+  if (iconEl) {
+    iconEl.innerHTML = "";
+
+    const iconSymbol = document.createElement("span");
+    iconSymbol.className = "toast-icon-symbol";
+    iconSymbol.textContent = type === "error" ? "!" : "✓";
+    iconSymbol.setAttribute("aria-hidden", "true");
+
+    iconEl.appendChild(iconSymbol);
+
+    iconEl.setAttribute(
+      "aria-label",
+      type === "error" ? "Error notification" : "Success notification"
+    );
+  }
+
+  if (hasAction) {
+    actionBtn.textContent = action.label;
+    actionBtn.hidden = false;
+    actionBtn.onclick = () => {
+      hideAppToast();
+      action.onClick();
+    };
+  } else {
+    actionBtn.textContent = "";
+    actionBtn.hidden = true;
+    actionBtn.onclick = null;
+  }
+
   toast.hidden = false;
   toast.classList.add("show");
 
@@ -771,19 +922,27 @@ function showAppToast(message) {
 
   appToastTimeoutId = setTimeout(() => {
     hideAppToast();
-  }, 2600);
+  }, hasAction ? 5200 : 3200);
 }
 
 function hideAppToast() {
   const toast = document.getElementById("app-toast");
   if (!toast) return;
 
+  const actionBtn = document.getElementById("app-toast-action");
+
+  if (actionBtn) {
+    actionBtn.onclick = null;
+    actionBtn.hidden = true;
+    actionBtn.textContent = "";
+  }
+
   if (appToastTimeoutId) {
     clearTimeout(appToastTimeoutId);
     appToastTimeoutId = null;
   }
 
-  toast.classList.remove("show");
+  toast.classList.remove("show", "has-action");
 
   setTimeout(() => {
     toast.hidden = true;
@@ -894,7 +1053,6 @@ function jumpToExpensePage(expenseId) {
   currentPage = Math.floor(targetIndex / rowsPerPage) + 1;
   return true;
 }
-
 
 function syncMonthFilterState() {
   if (!monthFilterInput) return;
@@ -1070,7 +1228,7 @@ function createExpenseRow(expense, index) {
   const lockedClass = !isEditMode ? "locked" : "";
   const editableValue = isEditMode ? "true" : "false";
   const categoryOptions = getCategoryOptions(expense.category);
-  const isNewlyAdded = expense.id === newlyAddedExpenseId;
+  const isNewlyAdded = String(expense.id) === String(newlyAddedExpenseId);
 
   if (isNewlyAdded) {
     row.classList.add("new-expense-row");
@@ -1486,8 +1644,6 @@ function renderPieChart() {
   });
 }
 
-
-
 function renderChart() {
   const monthlyTotals = {};
 
@@ -1711,8 +1867,6 @@ function renderChart() {
   });
 }
 
-
-
 function renderExpenses() {
   expenseBody.innerHTML = "";
 
@@ -1815,9 +1969,11 @@ function validateAmountLive() {
 // ---------- Actions ----------
 async function addExpense() {
   if (isEditMode) {
-    showStatus("Save or cancel your table edits before adding a new expense.", "error");
+    showAddExpenseModeError("Save or cancel your table edits before adding a new expense.");
     return;
   }
+
+  clearAddExpenseModeError();
 
   const typedDateIsValid = syncTypedDateToHidden(true);
 
@@ -1919,18 +2075,15 @@ async function addExpense() {
       newlyAddedExpenseId = matchingExpense?.id ?? null;
     }
 
-    // After the saved expenses reload, move to the actual page where the
-    // newly added row belongs based on the current sort/filter/search state.
-    // This prevents old-dated expenses from being highlighted on a hidden page.
     if (newlyAddedExpenseId != null) {
-      const foundNewExpensePage = jumpToExpensePage(newlyAddedExpenseId);
-
-      if (foundNewExpensePage) {
-        renderExpenses();
-      }
+      jumpToExpensePage(newlyAddedExpenseId);
+    } else {
+      currentPage = 1;
     }
 
     clearStatus();
+    clearAddExpenseModeError();
+    renderExpenses();
 
     if (tableSection) {
       tableSection.scrollIntoView({
@@ -1959,19 +2112,42 @@ async function addExpense() {
       renderExpenses();
     }, 2800);
 
-    showAppToast("Expense added successfully.");
+    showAppToast("Expense added successfully.", "success");
+
+    expenseNameInput.value = "";
+    amountInput.value = "";
+    descInput.value = "";
+    descCounter.textContent = `0/${DESCRIPTION_LIMIT}`;
+
+    expenseNameInput.classList.remove("error");
+    amountInput.classList.remove("error");
+    dateInput.classList.remove("error");
+    descInput.classList.remove("error");
+
+    expenseNameError.textContent = "";
+    amountError.textContent = "";
+    dateError.textContent = "";
+    descError.textContent = "";
+
+    const amountHelper = document.getElementById("amount-helper");
+    if (amountHelper) {
+      amountHelper.textContent = "";
+      amountHelper.classList.remove("error");
+    }
+
+    setTodayDate();
+
+    if (categoryInput) {
+      categoryInput.selectedIndex = 0;
+      syncAddExpenseCategoryMenu();
+    }
   } catch (error) {
     console.error("Create failed:", error);
-    showStatus("Failed to save expense. Please check the server and try again.", "error");
-    return;
-  }
 
-  expenseNameInput.value = "";
-  amountInput.value = "";
-  dateInput.value = "";
-  descInput.value = "";
-  descCounter.textContent = `0/${DESCRIPTION_LIMIT}`;
-  setTodayDate();
+    const message = "Failed to save expense. Please check the server and try again.";
+    showStatus(message, "error");
+    showAppToast(message, "error");
+  }
 }
 
 async function deleteExpense(index) {
@@ -1991,7 +2167,9 @@ async function deleteExpense(index) {
     showAppToast("Expense deleted successfully.");
   } catch (error) {
     console.error("Delete failed:", error);
-    showStatus("Failed to delete expense from the database.", "error");
+    const message = "Failed to delete expense from the database.";
+    showStatus(message, "error");
+    showAppToast(message, "error");
   }
 }
 
@@ -2143,6 +2321,7 @@ function resetDashboardView() {
   }
 
   clearStatus();
+  clearAddExpenseModeError();
   setTodayDate();
   renderExpenses();
 
@@ -2266,7 +2445,7 @@ function handleTableClick(event) {
   const editButton = event.target.closest("button[data-action='edit-row']");
   if (editButton) {
     if (isEditMode || editButton.disabled) return;
-  
+
     const index = Number(editButton.dataset.index);
     startRowEdit(index);
     return;
@@ -2308,6 +2487,10 @@ function bindEvents() {
     validateAmountLive();
   });
 
+  if (categoryInput) {
+    categoryInput.addEventListener("change", syncAddExpenseCategoryMenu);
+  }
+
   descInput.addEventListener("input", () => {
     descInput.classList.remove("error");
 
@@ -2320,27 +2503,6 @@ function bindEvents() {
       descError.textContent = "";
     }
   });
-
-
-  if (categoryInput) {
-    categoryInput.addEventListener("change", syncAddExpenseCategoryMenu);
-  }
-
-  if (addExpenseCategoryMenu) {
-    addExpenseCategoryMenu.addEventListener("click", (event) => {
-      const option = event.target.closest(".add-expense-category-option");
-      if (!option) return;
-
-      setAddExpenseCategoryValue(option.dataset.categoryValue || "");
-      closeToolbarMenus();
-    });
-
-    addExpenseCategoryMenu.addEventListener("toggle", () => {
-      if (addExpenseCategoryMenu.open) {
-        closeToolbarMenus(addExpenseCategoryMenu);
-      }
-    });
-  }
 
   const appToastCloseBtn = document.getElementById("app-toast-close");
   if (appToastCloseBtn) {
@@ -2439,6 +2601,14 @@ function bindEvents() {
     });
   }
 
+  if (addExpenseCategoryMenu) {
+    addExpenseCategoryMenu.addEventListener("click", (event) => {
+      const option = event.target.closest(".add-expense-category-option");
+      if (!option) return;
+      setAddExpenseCategoryValue(option.dataset.categoryValue || "");
+    });
+  }
+
   editTableBtn.addEventListener("click", async () => {
     if (!isEditMode) {
       isEditMode = true;
@@ -2449,24 +2619,27 @@ function bindEvents() {
       renderExpenses();
       return;
     }
-  
+
     try {
       commitActiveTableCell();
-  
+
       await saveDraftChanges();
-  
+
       isEditMode = false;
       activeEditCell = null;
       editTableBtn.textContent = "Edit";
       cancelTableBtn.classList.add("inactive");
-  
+
       await loadExpenses();
-  
+
       clearStatus();
+      clearAddExpenseModeError();
       showAppToast("Changes saved successfully.");
     } catch (error) {
       console.error("Save failed:", error);
-      showStatus("Failed to save table changes. Please try again.", "error");
+      const message = "Failed to save table changes. Please try again.";
+      showStatus(message, "error");
+      showAppToast(message, "error");
     }
   });
 
@@ -2476,6 +2649,7 @@ function bindEvents() {
     editTableBtn.textContent = "Edit";
     cancelTableBtn.classList.add("inactive");
     clearStatus();
+    clearAddExpenseModeError();
     renderExpenses();
   });
 
@@ -2509,7 +2683,6 @@ function bindEvents() {
       renderExpenses();
     }
   });
-
 
   if (dateManualInput) {
     dateManualInput.addEventListener("input", () => {
@@ -2673,25 +2846,28 @@ function bindEvents() {
 
   if (usernameWrapper) {
     usernameWrapper.addEventListener("click", (event) => {
+      event.preventDefault();
       event.stopPropagation();
-    
+
       if (!isLoggedIn) {
         showAppToast("Login flow is not connected in this preview.");
         return;
       }
-    
+
       const profile = usernameWrapper.closest(".profile");
       const expanded = usernameWrapper.getAttribute("aria-expanded") === "true";
       const nextExpanded = !expanded;
-    
+
       usernameWrapper.setAttribute("aria-expanded", String(nextExpanded));
       usernameWrapper.classList.toggle("active", nextExpanded);
-    
+
       if (profile) {
         profile.classList.toggle("menu-open", nextExpanded);
       }
     });
-  
+
+    usernameWrapper.addEventListener("blur", closeProfileMenu);
+
     usernameWrapper.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
@@ -2701,12 +2877,7 @@ function bindEvents() {
   }
 
   if (logoutBtn) {
-    // Use pointerdown so logout still runs before the dropdown can lose focus/close.
-    logoutBtn.addEventListener("pointerdown", logout);
-    logoutBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-    });
+    logoutBtn.addEventListener("click", logout);
   }
 
   if (expenseBody) {
@@ -2725,6 +2896,11 @@ function bindEvents() {
   });
 
   window.addEventListener("scroll", handleHeaderFade);
+  window.addEventListener("resize", () => {
+    if (expenses.length > 0) {
+      renderChart();
+    }
+  });
 }
 
 function handleHeaderFade() {

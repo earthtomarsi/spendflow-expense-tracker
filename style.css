@@ -1803,9 +1803,12 @@ button.hidden-edit {
     flex-shrink: 0;
 }
 
+#app-toast-icon svg,
 .app-toast-icon svg {
-    width: 22px;
-    height: 22px;
+    width: 20px;
+    height: 20px;
+    display: block;
+    fill: currentColor;
 }
 
 .app-toast-message,
@@ -1845,6 +1848,29 @@ button.hidden-edit {
 .app-toast-close:focus,
 #app-toast-close:focus {
     outline: none;
+}
+
+/* Toast type states */
+.app-toast.success .app-toast-icon,
+.app-toast.success #app-toast-icon {
+    background: linear-gradient(135deg, #a8ff78 0%, #78ffd6 100%) !important;
+    color: #053b2e !important;
+    box-shadow:
+        0 10px 24px rgba(120, 255, 214, 0.28),
+        0 0 0 8px rgba(168, 255, 120, 0.12) !important;
+}
+
+.app-toast.error {
+    border-color: rgba(239, 68, 68, 0.20);
+}
+
+.app-toast.error .app-toast-icon,
+.app-toast.error #app-toast-icon {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
+    color: #b91c1c !important;
+    box-shadow:
+        0 10px 24px rgba(239, 68, 68, 0.14),
+        0 0 0 8px rgba(239, 68, 68, 0.08) !important;
 }
 
 /* ---------- Responsive ---------- */
@@ -5212,4 +5238,501 @@ main,
 #expense-table th:nth-child(5),
 #expense-table td:nth-child(5) {
     width: 28% !important;
+}
+
+/* ---------- Add Expense edit-mode warning ---------- */
+
+.add-expense-mode-error {
+    display: block;
+    width: fit-content;
+    max-width: 420px;
+    margin: 8px 0 0 auto !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #e74c3c !important;
+    font-size: 12px !important;
+    font-weight: 400 !important;
+    line-height: 1.35 !important;
+    text-align: left;
+}
+
+.add-expense-mode-error[hidden] {
+    display: none !important;
+}
+
+@media (max-width: 820px) {
+    .add-expense-mode-error {
+        width: 100%;
+        max-width: none;
+        margin-left: 0 !important;
+    }
+}
+
+/* ---------- Toast icon type override ---------- */
+
+#app-toast-icon svg,
+.app-toast-icon svg {
+    display: none !important;
+}
+
+#app-toast-icon::before,
+.app-toast-icon::before {
+    content: "✓";
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: currentColor;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.app-toast.error #app-toast-icon::before,
+.app-toast.error .app-toast-icon::before {
+    content: "!";
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.app-toast.error {
+    border-color: rgba(239, 68, 68, 0.20) !important;
+}
+
+.app-toast.error #app-toast-icon,
+.app-toast.error .app-toast-icon {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
+    color: #b91c1c !important;
+    box-shadow:
+        0 10px 24px rgba(239, 68, 68, 0.14),
+        0 0 0 8px rgba(239, 68, 68, 0.08) !important;
+}
+
+/* ---------- Toast spacing polish ---------- */
+
+.app-toast {
+    gap: 18px !important;
+}
+
+.app-toast-message,
+#app-toast-message {
+    padding-left: 2px !important;
+}
+
+/* Add more breathing room between Add Expense button and edit-mode warning */
+.add-expense-mode-error,
+.error-text.add-expense-mode-error {
+    margin-top: 12px !important;
+}
+
+/* ---------- Toast close button polish ---------- */
+
+/* Keep the toast close button neutral. No green hover highlight. */
+.app-toast-close,
+#app-toast-close {
+    background: transparent !important;
+    color: #6b7280 !important;
+}
+
+/* Remove coloured hover background from the toast close button. */
+.app-toast-close:hover,
+#app-toast-close:hover,
+.app-toast.error .app-toast-close:hover,
+.app-toast.error #app-toast-close:hover,
+.app-toast.success .app-toast-close:hover,
+.app-toast.success #app-toast-close:hover {
+    background: transparent !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+}
+
+/* ---------- Toast action button polish ---------- */
+
+.app-toast {
+    gap: 18px !important;
+}
+
+.app-toast-message,
+#app-toast-message {
+    min-width: 0;
+    padding-left: 2px !important;
+}
+
+.app-toast-action,
+#app-toast-action {
+    height: 32px;
+    min-width: max-content;
+    padding: 0 12px;
+    border: 1px solid rgba(239, 68, 68, 0.18);
+    border-radius: 999px;
+    background: rgba(254, 226, 226, 0.62);
+    box-shadow: none !important;
+    color: #b91c1c;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.app-toast-action:hover,
+#app-toast-action:hover {
+    background: rgba(254, 202, 202, 0.74) !important;
+    color: #991b1b !important;
+    box-shadow: none !important;
+}
+
+.app-toast-action[hidden],
+#app-toast-action[hidden] {
+    display: none !important;
+}
+
+/* Keep the toast close button neutral, especially inside error toasts. */
+.app-toast-close,
+#app-toast-close {
+    background: transparent !important;
+    color: #6b7280 !important;
+}
+
+.app-toast-close:hover,
+#app-toast-close:hover,
+.app-toast.error .app-toast-close:hover,
+.app-toast.error #app-toast-close:hover,
+.app-toast.success .app-toast-close:hover,
+.app-toast.success #app-toast-close:hover {
+    background: transparent !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+}
+
+/* Add a bit more breathing room between Add Expense button and warning text. */
+.add-expense-mode-error,
+.error-text.add-expense-mode-error {
+    margin-top: 12px !important;
+}
+
+/* ---------- Toast action layout refinement ---------- */
+
+/* Make toast layout closer to a card-style notification:
+   icon on the left, message in the middle, close button on the right,
+   optional action button below the message. */
+   .app-toast {
+    display: grid !important;
+    grid-template-columns: 38px minmax(0, 1fr) 28px;
+    grid-template-rows: auto auto;
+    column-gap: 18px !important;
+    row-gap: 10px;
+    align-items: start !important;
+}
+
+/* Icon stays on the left */
+.app-toast-icon,
+#app-toast-icon {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+}
+
+/* Message stays on the first row */
+.app-toast-message,
+#app-toast-message {
+    grid-column: 2;
+    grid-row: 1;
+    padding-left: 0 !important;
+}
+
+/* Close button stays on the top right */
+.app-toast-close,
+#app-toast-close {
+    grid-column: 3;
+    grid-row: 1;
+    align-self: start;
+    justify-self: end;
+    background: transparent !important;
+    color: #6b7280 !important;
+}
+
+/* Keep close hover neutral, not green */
+.app-toast-close:hover,
+#app-toast-close:hover,
+.app-toast.error .app-toast-close:hover,
+.app-toast.error #app-toast-close:hover,
+.app-toast.success .app-toast-close:hover,
+.app-toast.success #app-toast-close:hover {
+    background: transparent !important;
+    color: #111827 !important;
+    box-shadow: none !important;
+}
+
+/* Action button sits below the message, like the reference toast actions */
+.app-toast-action,
+#app-toast-action {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+
+    height: 30px;
+    min-width: max-content;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(185, 28, 28, 0.24);
+    background: transparent !important;
+    box-shadow: none !important;
+
+    color: #b91c1c;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* Slight hover feedback, but still subtle and error-colour appropriate */
+.app-toast-action:hover,
+#app-toast-action:hover {
+    background: rgba(254, 226, 226, 0.48) !important;
+    border-color: rgba(185, 28, 28, 0.34);
+    color: #991b1b !important;
+    box-shadow: none !important;
+}
+
+.app-toast-action[hidden],
+#app-toast-action[hidden] {
+    display: none !important;
+}
+
+/* On smaller screens, keep the toast readable */
+@media (max-width: 640px) {
+    .app-toast {
+        grid-template-columns: 38px minmax(0, 1fr) 28px;
+    }
+
+    .app-toast-action,
+    #app-toast-action {
+        max-width: 100%;
+        white-space: normal;
+    }
+}
+
+/* ---------- Final toast alignment + table edit action polish ---------- */
+
+/* Extra vertical breathing room for every toast. */
+.app-toast {
+    min-height: 76px !important;
+    padding-top: 18px !important;
+    padding-bottom: 18px !important;
+}
+
+/* Toasts without action buttons should align icon, text, and close button cleanly. */
+.app-toast:not(.has-action) {
+    display: grid !important;
+    grid-template-columns: 38px minmax(0, 1fr) 28px !important;
+    grid-template-rows: 1fr !important;
+    column-gap: 18px !important;
+    row-gap: 0 !important;
+    align-items: center !important;
+}
+
+.app-toast:not(.has-action) .app-toast-icon,
+.app-toast:not(.has-action) #app-toast-icon {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+}
+
+.app-toast:not(.has-action) .app-toast-message,
+.app-toast:not(.has-action) #app-toast-message {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+    justify-self: stretch !important;
+    display: flex !important;
+    justify-content: center !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    min-height: 38px !important;
+    padding-left: 0 !important;
+    text-align: left !important;
+}
+
+.app-toast:not(.has-action) .app-toast-body {
+    display: block !important;
+    margin: 0 !important;
+    color: #111827 !important;
+    font-size: 15px !important;
+    font-weight: 650 !important;
+    line-height: 1.35 !important;
+    text-decoration: none !important;
+}
+
+.app-toast:not(.has-action) .app-toast-close,
+.app-toast:not(.has-action) #app-toast-close {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    align-self: center !important;
+    justify-self: end !important;
+}
+
+/* Toasts with action buttons use a two-row card layout. */
+.app-toast.has-action {
+    display: grid !important;
+    grid-template-columns: 38px minmax(0, 1fr) 28px !important;
+    grid-template-rows: auto auto !important;
+    column-gap: 18px !important;
+    row-gap: 10px !important;
+    align-items: start !important;
+}
+
+.app-toast.has-action .app-toast-icon,
+.app-toast.has-action #app-toast-icon {
+    grid-column: 1 !important;
+    grid-row: 1 / span 2 !important;
+    align-self: start !important;
+}
+
+.app-toast.has-action .app-toast-message,
+.app-toast.has-action #app-toast-message {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    align-self: start !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    min-width: 0 !important;
+    padding-left: 0 !important;
+    text-align: left !important;
+}
+
+.app-toast.has-action .app-toast-body {
+    color: #111827 !important;
+    font-size: 15px !important;
+    font-weight: 650 !important;
+    line-height: 1.35 !important;
+    text-decoration: none !important;
+}
+
+.app-toast.has-action .app-toast-action,
+.app-toast.has-action #app-toast-action {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    justify-self: start !important;
+}
+
+.app-toast.has-action .app-toast-close,
+.app-toast.has-action #app-toast-close {
+    grid-column: 3 !important;
+    grid-row: 1 !important;
+    align-self: start !important;
+    justify-self: end !important;
+}
+
+/* Remove any accidental underline/selected-looking decoration from toast text. */
+.app-toast-message,
+#app-toast-message,
+.app-toast-body,
+.app-toast-title {
+    text-decoration: none !important;
+    text-underline-offset: 0 !important;
+}
+
+/* Highlight the Save button after jumping from the edit-mode toast action. */
+.table-action-btn.table-action-attention,
+#edit-table-btn.table-action-attention {
+    border: 1px solid rgba(72, 221, 182, 0.92) !important;
+    box-shadow:
+        0 0 0 4px rgba(168, 255, 120, 0.24),
+        0 12px 28px rgba(72, 221, 182, 0.22) !important;
+    background: var(--gradient-green) !important;
+    color: #fafafa !important;
+}
+
+@media (max-width: 640px) {
+    .app-toast {
+        min-height: 72px !important;
+        padding-top: 16px !important;
+        padding-bottom: 16px !important;
+    }
+
+    .app-toast.has-action,
+    .app-toast:not(.has-action) {
+        grid-template-columns: 38px minmax(0, 1fr) 28px !important;
+    }
+}
+
+/* ---------- Stronger Save button attention highlight ---------- */
+
+.table-action-btn.table-action-attention,
+#edit-table-btn.table-action-attention {
+    position: relative;
+    border: 2px solid #f59e0b !important;
+    background: var(--gradient-green) !important;
+    color: #fafafa !important;
+    box-shadow:
+        0 0 0 5px rgba(245, 158, 11, 0.28),
+        0 0 0 10px rgba(245, 158, 11, 0.10),
+        0 16px 36px rgba(245, 158, 11, 0.28) !important;
+    animation: saveButtonAttentionPulse 0.9s ease-in-out infinite alternate;
+}
+
+/* ---------- Subtle Save button error-state attention highlight ---------- */
+
+.table-action-btn.table-action-attention,
+#edit-table-btn.table-action-attention {
+    position: relative;
+    border: 1.5px solid rgba(239, 68, 68, 0.55) !important;
+    background: var(--gradient-green) !important;
+    color: #fafafa !important;
+    box-shadow:
+        0 0 0 4px rgba(239, 68, 68, 0.12),
+        0 10px 26px rgba(239, 68, 68, 0.16) !important;
+    animation: none !important;
+}
+
+@keyframes saveButtonAttentionPulse {
+    from {
+        box-shadow:
+            0 0 0 5px rgba(245, 158, 11, 0.24),
+            0 0 0 10px rgba(245, 158, 11, 0.08),
+            0 16px 36px rgba(245, 158, 11, 0.22);
+    }
+
+    to {
+        box-shadow:
+            0 0 0 7px rgba(245, 158, 11, 0.38),
+            0 0 0 14px rgba(245, 158, 11, 0.14),
+            0 18px 42px rgba(245, 158, 11, 0.34);
+    }
+}
+
+/* ---------- Subtle Save button error-state attention highlight ---------- */
+
+.table-action-btn.table-action-attention,
+#edit-table-btn.table-action-attention {
+    position: relative;
+    border: 1.5px solid rgba(239, 68, 68, 0.55) !important;
+    background: var(--gradient-green) !important;
+    color: #fafafa !important;
+    box-shadow:
+        0 0 0 4px rgba(239, 68, 68, 0.12),
+        0 10px 26px rgba(239, 68, 68, 0.16) !important;
+    animation: none !important;
+}
+
+/* ---------- Feathered Save button error-state attention highlight ---------- */
+
+.table-action-btn.table-action-attention,
+#edit-table-btn.table-action-attention {
+    position: relative;
+    border: 1px solid rgba(239, 68, 68, 0.42) !important;
+    background: var(--gradient-green) !important;
+    color: #fafafa !important;
+    box-shadow:
+        0 0 0 3px rgba(239, 68, 68, 0.08),
+        0 0 18px rgba(239, 68, 68, 0.22),
+        0 0 34px rgba(239, 68, 68, 0.12),
+        0 12px 28px rgba(15, 23, 42, 0.08) !important;
+    animation: none !important;
 }
