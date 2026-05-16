@@ -4,17 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Spendflow</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com/" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="style.css">
   <link rel="icon" type="image/png" href="Assets/favicon.png">
 </head>
+
 <body>
   <header class="header-full">
     <div class="header-left">
       <h1 id="brand-home" class="logo logo-clickable">
-        Spend<span class="f">ƒ </span>low
+        Spend<span class="f">ƒ</span>low
       </h1>
       <p>Track your spending</p>
     </div>
@@ -46,102 +49,134 @@
   <main>
     <div id="app-status" class="status-message" role="alert" aria-live="assertive" hidden></div>
 
-    <div class="add">
-      <h2>Track an Expense</h2>
+    <section class="add expense-hero">
+      <div class="hero-copy">
+        <h2>Hi Marsi, ready to track today’s spending?</h2>
+        <p class="hero-subtext">
+          Add expenses quickly, see where your money goes, and track spending patterns over time.
+        </p>
+      </div>
 
-      <div class="container">
-        <div class="input-section">
-          <div class="input-row">
-            <div class="field-group">
-              <label class="sr-only" for="expenseName">Expense title</label>
-              <input id="expenseName" placeholder="Title">
-              <p id="expenseName-error" class="error-text"></p>
-            </div>
+      <div class="hero-cards" aria-label="Expense tracking highlights">
+        <a class="hero-card" href="#add-expense" aria-label="Jump to add expense form">
+          <span class="hero-card-icon" aria-hidden="true">＋</span>
+          <h3>Quick add</h3>
+          <p>Log new expenses without breaking your flow.</p>
+        </a>
 
-            <div class="field-group">
-              <label class="sr-only" for="amount">Expense amount</label>
-              <input id="amount" type="text" inputmode="decimal" placeholder="Amount">
-              <small id="amount-helper"></small>
-              <p id="amount-error" class="error-text"></p>
-            </div>
+        <a class="hero-card" href="#expense-history" aria-label="Jump to expense history section">
+          <span class="hero-card-icon" aria-hidden="true">◌</span>
+          <h3>Expense history</h3>
+          <p>Review your logged expenses and filter them by category.</p>
+        </a>
 
-            <div class="field-group">
-              <label class="sr-only" for="category">Expense category</label>
-              <div class="select-wrapper">
-                <select id="category">
-                  <option>Food</option>
-                  <option>Transport</option>
-                  <option>Bills</option>
-                  <option>Leisure</option>
-                  <option>Shopping</option>
-                </select>
-                <span class="select-arrow">›</span>
+        <a class="hero-card" href="#monthly-trends" aria-label="Jump to monthly trends chart">
+          <span class="hero-card-icon" aria-hidden="true">↗</span>
+          <h3>Monthly trends</h3>
+          <p>Track how your spending changes month by month.</p>
+        </a>
+      </div>
+
+      <div id="add-expense" class="quick-expense-panel">
+        <div class="quick-expense-header">
+          <div>
+            <h3>Add expense</h3>
+            <p>Fill in the details below to update your spending history.</p>
+          </div>
+        </div>
+
+        <div class="container">
+          <div class="input-section">
+            <div class="input-row">
+              <div class="field-group">
+                <label class="sr-only" for="expenseName">Expense title</label>
+                <input id="expenseName" placeholder="Title">
+                <p id="expenseName-error" class="error-text"></p>
+              </div>
+
+              <div class="field-group">
+                <label class="sr-only" for="amount">Expense amount</label>
+                <input id="amount" type="text" inputmode="decimal" placeholder="Amount">
+                <small id="amount-helper"></small>
+                <p id="amount-error" class="error-text"></p>
+              </div>
+
+              <div class="field-group">
+                <label class="sr-only" for="category">Expense category</label>
+                <div class="select-wrapper">
+                  <select id="category">
+                    <option>Food</option>
+                    <option>Transport</option>
+                    <option>Bills</option>
+                    <option>Leisure</option>
+                    <option>Shopping</option>
+                  </select>
+                  <span class="select-arrow">›</span>
+                </div>
+              </div>
+
+              <div class="field-group date-field-group">
+                <label class="sr-only" for="date">Expense date</label>
+                <input id="date" type="hidden">
+                <details id="date-picker" class="date-picker">
+                  <summary id="date-trigger" class="date-trigger">
+                    <span id="date-trigger-label">Select date</span>
+                    <span class="date-trigger-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+                        <path d="M16 3v4"></path>
+                        <path d="M8 3v4"></path>
+                        <path d="M3 10h18"></path>
+                      </svg>
+                    </span>
+                  </summary>
+                  <div class="date-picker-panel">
+                    <div class="date-picker-header">
+                      <button id="date-prev-month" type="button" aria-label="Previous month">‹</button>
+                      <span id="date-picker-month-label">Month Year</span>
+                      <button id="date-next-month" type="button" aria-label="Next month">›</button>
+                    </div>
+                    <div class="date-weekdays" aria-hidden="true">
+                      <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+                    </div>
+                    <div id="date-picker-grid" class="date-picker-grid"></div>
+                    <div class="date-picker-actions">
+                      <button id="date-picker-today" type="button">Today</button>
+                    </div>
+                  </div>
+                </details>
+                <small id="date-helper"></small>
+                <p id="date-error" class="error-text"></p>
+              </div>
+
+              <div class="field-group description-group">
+                <label class="sr-only" for="description">Expense description</label>
+                <input id="description" maxlength="70" placeholder="Description">
+                <div class="desc-info">
+                  <p id="desc-error" class="error-text"></p>
+                  <small id="desc-counter">0/70</small>
+                </div>
               </div>
             </div>
 
-            <div class="field-group">
-              <label class="sr-only" for="date">Expense date</label>
-              <input id="date" type="date">
-              <small id="date-helper"></small>
-              <p id="date-error" class="error-text"></p>
-            </div>
-
-            <div class="field-group description-group">
-              <label class="sr-only" for="description">Expense description</label>
-              <input id="description" maxlength="70" placeholder="Description">
-              <div class="desc-info">
-                <p id="desc-error" class="error-text"></p>
-                <small id="desc-counter">0/70</small>
-              </div>
+            <div class="button-section">
+              <button id="add-btn" type="button">Add Expense</button>
             </div>
           </div>
-
-          <div class="button-section">
-            <button id="add-btn" type="button">Add Expense</button>
-          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <div class="table-controls">
-      <div class="filters">
-        <button class="filter-btn active" data-category="All" type="button">All</button>
-        <button class="filter-btn" data-category="Food" type="button">Food</button>
-        <button class="filter-btn" data-category="Transport" type="button">Transport</button>
-        <button class="filter-btn" data-category="Bills" type="button">Bills</button>
-        <button class="filter-btn" data-category="Leisure" type="button">Leisure</button>
-        <button class="filter-btn" data-category="Shopping" type="button">Shopping</button>
-      </div>
-
-      <div class="controls-right">
-        <div class="month-filter">
-          <label for="month-filter">Month</label>
-          <input id="month-filter" type="month">
-          <button id="clear-month" type="button">Clear</button>
-        </div>
-
-        <div class="sort">
-          <label for="sort-select">Sort by</label>
-          <div class="select-wrapper">
-            <select id="sort-select">
-              <option value="date-desc">Date: Newest</option>
-              <option value="date-asc">Date: Oldest</option>
-              <option value="amount-asc">Amount: Low to High</option>
-              <option value="amount-desc">Amount: High to Low</option>
-              <option value="name-asc">Name: A to Z</option>
-              <option value="name-desc">Name: Z to A</option>
-            </select>
-            <span class="select-arrow">›</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="table-section">
+    <div id="expense-history" class="table-section">
       <div class="table-header">
-        <h3>Expense History</h3>
+        <div class="table-title-group">
+          <div>
+            <h3>Expense History</h3>
+            <p>Search, filter, sort, and manage your logged expenses.</p>
+          </div>
+        </div>
 
-        <div class="table-topbar">
+        <div class="table-toolbar" aria-label="Expense history controls">
           <div class="table-search">
             <label class="sr-only" for="expense-search">Search expense titles</label>
             <input id="expense-search" type="text" placeholder="Search by title">
@@ -153,32 +188,101 @@
             </button>
           </div>
 
-          <div class="table-pagination">
-            <span id="page-indicator">0-0 of 0</span>
-            <button id="prev-page-btn" type="button" class="page-btn" aria-label="Previous page">&#8249;</button>
-            <button id="next-page-btn" type="button" class="page-btn" aria-label="Next page">&#8250;</button>
-          </div>
+          <details id="filter-menu" class="toolbar-menu filter-menu">
+            <summary class="toolbar-button filter-menu-trigger">
+              <span class="toolbar-button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 6h16"></path>
+                  <path d="M7 12h10"></path>
+                  <path d="M10 18h4"></path>
+                </svg>
+              </span>
+              <span>Filter</span>
+            </summary>
+
+            <div class="toolbar-menu-panel filter-menu-panel">
+              <button class="filter-btn active" data-category="All" type="button">All</button>
+              <button class="filter-btn" data-category="Food" type="button">Food</button>
+              <button class="filter-btn" data-category="Transport" type="button">Transport</button>
+              <button class="filter-btn" data-category="Bills" type="button">Bills</button>
+              <button class="filter-btn" data-category="Leisure" type="button">Leisure</button>
+              <button class="filter-btn" data-category="Shopping" type="button">Shopping</button>
+            </div>
+          </details>
+
+          <select id="sort-select" class="native-control-hidden" aria-hidden="true" tabindex="-1">
+            <option value="added-desc">Date: Most Recent</option>
+            <option value="date-asc">Date: Oldest</option>
+            <option value="amount-asc">Amount: Low to High</option>
+            <option value="amount-desc">Amount: High to Low</option>
+            <option value="name-asc">Name: A to Z</option>
+            <option value="name-desc">Name: Z to A</option>
+          </select>
+
+          <details id="sort-menu" class="toolbar-menu sort-menu">
+            <summary class="toolbar-button sort-menu-trigger">
+              <span id="sort-menu-label">Date: Most Recent</span>
+              <span class="toolbar-chevron" aria-hidden="true">›</span>
+            </summary>
+            <div class="toolbar-menu-panel sort-menu-panel">
+              <button class="sort-option active" data-sort-value="added-desc" type="button">Date: Most Recent</button>
+              <button class="sort-option" data-sort-value="date-asc" type="button">Date: Oldest</button>
+              <button class="sort-option" data-sort-value="amount-asc" type="button">Amount: Low to High</button>
+              <button class="sort-option" data-sort-value="amount-desc" type="button">Amount: High to Low</button>
+              <button class="sort-option" data-sort-value="name-asc" type="button">Name: A to Z</button>
+              <button class="sort-option" data-sort-value="name-desc" type="button">Name: Z to A</button>
+            </div>
+          </details>
+
+          <input id="month-filter" type="hidden">
+
+          <details id="month-menu" class="toolbar-menu month-menu">
+            <summary class="toolbar-button month-menu-trigger">
+              <span id="month-menu-label">Month</span>
+              <span class="toolbar-button-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="5" width="18" height="16" rx="2"></rect>
+                  <path d="M16 3v4"></path>
+                  <path d="M8 3v4"></path>
+                  <path d="M3 10h18"></path>
+                </svg>
+              </span>
+            </summary>
+            <div id="month-menu-panel" class="toolbar-menu-panel month-menu-panel"></div>
+          </details>
+
+          <button id="clear-month" class="toolbar-clear" type="button">Clear</button>
         </div>
       </div>
 
-      <table id="expense-table">
-        <thead>
-          <tr>
-            <th><span class="th-text">Title</span></th>
-            <th><span class="th-text">Amount</span></th>
-            <th><span class="th-text">Category</span></th>
-            <th><span class="th-text">Date</span></th>
-            <th><span class="th-text">Description</span></th>
-            <th></th>
-          </tr>
-        </thead>
+      <div class="expense-table-panel">
+        <table id="expense-table">
+          <thead>
+            <tr>
+              <th><span class="th-text">Title</span></th>
+              <th><span class="th-text">Amount</span></th>
+              <th><span class="th-text">Category</span></th>
+              <th><span class="th-text">Date</span></th>
+              <th><span class="th-text">Description</span></th>
+              <th class="actions-header" aria-label="Actions"></th>
+            </tr>
+          </thead>
 
-        <tbody id="expense-body">
-          <tr id="empty-row">
-            <td colspan="6" id="empty-state">No expenses yet</td>
-          </tr>
-        </tbody>
-      </table>
+          <tbody id="expense-body">
+            <tr id="empty-row">
+              <td colspan="6" id="empty-state">No expenses yet</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-footer">
+        <div class="table-pagination">
+          <span id="page-indicator">0-0 of 0</span>
+          <button id="prev-page-btn" type="button" class="page-btn" aria-label="Previous page">&#8249;</button>
+          <button id="next-page-btn" type="button" class="page-btn" aria-label="Next page">&#8250;</button>
+        </div>
+      </div>
 
       <div class="table-actions">
         <button id="edit-table-btn" type="button" class="table-action-btn">Edit</button>
@@ -199,21 +303,57 @@
           </div>
 
           <div class="summary-right">
-            <canvas id="pieChart"></canvas>
+            <div class="chart-card-heading">
+              <div>
+                <h4>Category Breakdown</h4>
+                <p id="pie-subtitle">Spending share by category</p>
+              </div>
+              <span class="chart-badge">Overview</span>
+            </div>
+
+            <div class="pie-card-body">
+              <div class="pie-chart-wrap">
+                <canvas id="pieChart"></canvas>
+              </div>
+
+              <div id="pie-overview" class="pie-overview" aria-label="Top category percentage overview">
+                <div class="pie-overview-empty">No category data yet</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <section class="trend-section">
+    <section id="monthly-trends" class="trend-section">
       <div class="trend-inner">
         <div class="chart-container">
-          <h3>Monthly Spending Trend</h3>
-          <canvas id="categoryChart"></canvas>
+          <div class="trend-header">
+            <div>
+              <h3>Monthly Spending Trend</h3>
+              <p>Track how your monthly spending changes against your average.</p>
+            </div>
+            <span class="chart-badge trend-badge">Monthly</span>
+          </div>
+
+          <div class="trend-chart-shell">
+            <canvas id="categoryChart"></canvas>
+          </div>
         </div>
       </div>
     </section>
   </main>
+
+  <div id="app-toast" class="app-toast" aria-live="polite" hidden>
+    <span class="app-toast-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="9"></circle>
+        <path d="M8.5 12.3l2.3 2.3 4.7-5.2"></path>
+      </svg>
+    </span>
+    <span id="app-toast-message" class="app-toast-message">Expense added successfully.</span>
+    <button id="app-toast-close" class="app-toast-close" type="button" aria-label="Close notification">×</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="script.js"></script>
