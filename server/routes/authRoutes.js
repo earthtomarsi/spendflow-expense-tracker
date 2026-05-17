@@ -12,13 +12,13 @@ router.post("/register", async (req, res) => {
   try {
     const { name, username, email, password } = req.body;
 
-    const cleanName = String(name || "").trim();
     const cleanUsername = String(username || "").trim().toLowerCase();
+    const cleanName = String(name || cleanUsername).trim();
     const cleanEmail = String(email || "").trim().toLowerCase();
 
-    if (!cleanName || !cleanUsername || !cleanEmail || !password) {
+    if (!cleanUsername || !cleanEmail || !password) {
       return res.status(400).json({
-        message: "Name, username, email and password are required"
+        message: "Username, email and password are required"
       });
     }
 
@@ -139,11 +139,10 @@ router.post("/login", async (req, res) => {
 router.post("/logout", authenticateToken, async (req, res) => {
   try {
     await logActivity(req.user.id, "LOGOUT", "User logged out");
-
-    res.json({ message: "Logout recorded successfully" });
+    res.json({ message: "Logout successful" });
   } catch (error) {
     console.error("Logout error:", error);
-    res.status(500).json({ message: "Failed to record logout" });
+    res.status(500).json({ message: "Failed to logout" });
   }
 });
 

@@ -10,9 +10,11 @@ const router = express.Router();
 router.use(authenticateToken, requireAdmin);
 
 function cleanUserInput(body) {
+  const username = String(body.username || body.name || "").trim().toLowerCase();
+
   return {
-    name: String(body.name || "").trim(),
-    username: String(body.username || "").trim().toLowerCase(),
+    name: String(body.name || username).trim(),
+    username,
     email: String(body.email || "").trim().toLowerCase(),
     role: String(body.role || "user").trim().toLowerCase(),
     password: body.password
@@ -20,8 +22,8 @@ function cleanUserInput(body) {
 }
 
 function validateAdminUserInput(user, { requirePassword = false } = {}) {
-  if (!user.name || !user.username || !user.email || !user.role) {
-    return "Name, username, email and role are required";
+  if (!user.username || !user.email || !user.role) {
+    return "Username, email and role are required";
   }
 
   if (!["user", "admin"].includes(user.role)) {
@@ -102,8 +104,7 @@ router.post("/users", async (req, res) => {
 
 router.put("/users/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const targetUserId = Number(id);
+    const targetUserId = Number(req.params.id);
     const user = cleanUserInput(req.body);
     const validationError = validateAdminUserInput(user);
 
@@ -176,8 +177,7 @@ router.put("/users/:id", async (req, res) => {
 
 router.delete("/users/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const targetUserId = Number(id);
+    const targetUserId = Number(req.params.id);
 
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return res.status(400).json({ message: "Invalid user id" });
@@ -187,7 +187,19 @@ router.delete("/users/:id", async (req, res) => {
       return res.status(400).json({ message: "You cannot delete your own account" });
     }
 
-    const [result] = await pool.query("DELETE FROM users WHERE id = ?", [targetUserId]);
+    const [users] = await pool.query(
+      "SELECT username FROM users WHERE id = ? LIMIT 1",
+      [targetUserId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const [result] = await pool.query(
+      "DELETE FROM users WHERE id = ?",
+      [targetUserId]
+    );
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ message: "User not found" });
@@ -196,7 +208,7 @@ router.delete("/users/:id", async (req, res) => {
     await logActivity(
       req.user.id,
       "ADMIN_DELETE_USER",
-      `Deleted user account ID: ${targetUserId}`
+      `Deleted user account: ${users[0].username}`
     );
 
     res.json({ message: "User deleted successfully" });
@@ -213,6 +225,7 @@ router.get("/activity", async (req, res) => {
         user_activity.id,
         user_activity.user_id,
         users.name,
+        users.username,
         users.email,
         user_activity.action,
         user_activity.details,

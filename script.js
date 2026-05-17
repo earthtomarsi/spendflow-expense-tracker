@@ -19,12 +19,17 @@ let pendingSearch = "";
 let currentPage = 1;
 let monthMenuYear = new Date().getFullYear();
 const rowsPerPage = 10;
+const adminUsersRowsPerPage = rowsPerPage;
+let adminUsersPage = 1;
 const DESCRIPTION_LIMIT = 70;
 const MAX_VALID_YEAR = new Date().getFullYear();
 let isEditMode = false;
 let newlyAddedExpenseId = null;
 let highlightTimeoutId = null;
 let appToastTimeoutId = null;
+let unsavedChangesDialogResolve = null;
+let unsavedChangesLastFocusedElement = null;
+let deleteUserDialogResolve = null;
 let tableActionHighlightTimeoutId = null;
 let activeEditCell = null;
 let selectedEditRowIndex = null;
@@ -32,6 +37,17 @@ let editModeOrderIds = [];
 let authToken = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
 let currentUser = getStoredUser();
 let isLoggedIn = Boolean(authToken);
+let adminUsers = [];
+let adminActivity = [];
+let isAdminPanelOpen = false;
+let authMode = "login";
+let isAdminEditMode = false;
+let selectedAdminUserIndex = null;
+let draftAdminUsers = [];
+let adminUserSearch = "";
+let adminRoleFilter = "All";
+let adminUserSort = "username-asc";
+let adminUserInvalidCells = {};
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -66,9 +82,11 @@ let loginPasswordInput = document.getElementById("login-password");
 let loginIdentifierError = document.getElementById("login-identifier-error");
 let loginPasswordError = document.getElementById("login-password-error");
 let loginSubmitBtn = document.getElementById("login-submit-btn");
+let authPage = document.getElementById("auth-page");
 const brandHome = document.getElementById("brand-home");
 const usernameWrapper = document.querySelector(".username-wrapper");
 const logoutBtn = document.getElementById("logout-btn");
+let userProfileBtn = document.getElementById("user-profile-btn");
 const trendSection = document.querySelector(".trend-section");
 const tableSection = document.querySelector(".table-section");
 const filterMenu = document.getElementById("filter-menu");
@@ -426,6 +444,22 @@ function formatMonthDisplay(value) {
   });
 }
 
+function formatActivityTimestamp(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  return date.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
 function getSortLabel(value) {
   const option = document.querySelector(`.sort-option[data-sort-value="${value}"]`);
   return option ? option.textContent.trim() : "Date: Most Recent";
@@ -523,21 +557,15 @@ function externalPieTooltip(context) {
   const directionY = Math.sin(angle);
   const canvasRect = chart.canvas.getBoundingClientRect();
 
-  // Anchor the tooltip pointer to the actual outer edge of the hovered slice.
-  // Using the full Y radius keeps smaller upper/lower slices like Leisure,
-  // Shopping, and Transport aligned with their visible arc instead of drifting
-  // toward the doughnut centre.
-  const pointerGap = label === "Leisure" ? 20 : 14;
+  // Anchor the tooltip to the vertical midpoint of the hovered doughnut section.
+  // The side is chosen from the slice midpoint, while the Y position uses the
+  // median radius of the slice band so the pointer aligns to the section itself.
+  const pointerGap = 14;
+  const medianRadius = (arc.innerRadius + arc.outerRadius) / 2;
   const tooltipAnchorX = canvasRect.left + window.scrollX + arc.x + directionX * (arc.outerRadius + 8);
-  const tooltipAnchorY = canvasRect.top + window.scrollY + arc.y + directionY * (arc.outerRadius + 8);
+  const tooltipAnchorY = canvasRect.top + window.scrollY + arc.y + directionY * medianRadius;
   const tooltipX = tooltipAnchorX + (directionX >= 0 ? -pointerGap : pointerGap);
-  const tooltipVerticalOffset =
-    label === "Transport" ? 18 :
-    label === "Shopping" ? 26 :
-    label === "Bills" ? -8 :
-    label === "Leisure" ? -22 :
-    0;
-  const tooltipY = tooltipAnchorY + tooltipVerticalOffset;
+  const tooltipY = tooltipAnchorY;
 
   tooltipEl.style.transition = "opacity 0.32s ease, transform 0.32s ease, left 0.32s ease, top 0.32s ease";
 
@@ -1012,19 +1040,27 @@ function ensureToastActionButton(toast) {
   return actionBtn;
 }
 
-function highlightTableEditActions() {
-  if (!editTableBtn) return;
+function highlightTableActionButton(button) {
+  if (!button) return;
 
-  editTableBtn.classList.add("table-action-attention");
+  document.querySelectorAll(".table-action-attention").forEach(activeButton => {
+    activeButton.classList.remove("table-action-attention");
+  });
+
+  button.classList.add("table-action-attention");
 
   if (tableActionHighlightTimeoutId) {
     clearTimeout(tableActionHighlightTimeoutId);
   }
 
   tableActionHighlightTimeoutId = setTimeout(() => {
-    editTableBtn.classList.remove("table-action-attention");
+    button.classList.remove("table-action-attention");
     tableActionHighlightTimeoutId = null;
-  }, 2800);
+  }, 3200);
+}
+
+function highlightTableEditActions() {
+  highlightTableActionButton(editTableBtn);
 }
 
 function scrollToTableEditActions() {
@@ -1046,6 +1082,46 @@ function scrollToTableEditActions() {
   }, 450);
 }
 
+function getActiveEditableTableSaveButton() {
+  if (isAdminEditMode) {
+    const adminSaveBtn = document.getElementById("admin-edit-users-btn");
+    if (adminSaveBtn) return adminSaveBtn;
+  }
+
+  if (isEditMode && editTableBtn) {
+    return editTableBtn;
+  }
+
+  return null;
+}
+
+function scrollToActiveEditableTableSaveButton() {
+  const saveButton = getActiveEditableTableSaveButton();
+
+  if (!saveButton) {
+    if (unsavedChangesLastFocusedElement?.focus) {
+      unsavedChangesLastFocusedElement.focus({ preventScroll: true });
+    }
+
+    return;
+  }
+
+  const target =
+    saveButton.closest(".admin-table-actions") ||
+    saveButton.closest(".table-actions") ||
+    saveButton;
+
+  target.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+
+  setTimeout(() => {
+    highlightTableActionButton(saveButton);
+    saveButton.focus({ preventScroll: true });
+  }, 450);
+}
+
 function showAppToast(message, type = "success", action = null, title = null) {
   const toast = document.getElementById("app-toast");
   const messageEl = document.getElementById("app-toast-message");
@@ -1056,11 +1132,9 @@ function showAppToast(message, type = "success", action = null, title = null) {
   const actionBtn = ensureToastActionButton(toast);
   const hasAction = Boolean(action?.label && typeof action.onClick === "function");
 
-  // Generic system/server errors get a heading.
-  // Guided error toasts with an action, such as "Go to table edits", stay title-free.
-  const toastTitle =
-    title ??
-    (type === "error" && !hasAction ? "Something went wrong" : "");
+  // Use an explicit title only when the caller provides one.
+  // This keeps field/table validation errors short and context-specific.
+  const toastTitle = title ?? "";
 
   messageEl.innerHTML = "";
 
@@ -1125,9 +1199,14 @@ function showAppToast(message, type = "success", action = null, title = null) {
     clearTimeout(appToastTimeoutId);
   }
 
+  const messageLength = String(message || "").length + String(toastTitle || "").length;
+  const baseDuration = hasAction ? 9000 : type === "error" ? 7200 : 5600;
+  const readingBuffer = Math.min(2200, Math.max(0, (messageLength - 80) * 32));
+  const toastDuration = Math.min(hasAction ? 11200 : 9200, baseDuration + readingBuffer);
+
   appToastTimeoutId = setTimeout(() => {
     hideAppToast();
-  }, hasAction ? 5200 : 3200);
+  }, toastDuration);
 }
 
 function hideAppToast() {
@@ -1154,6 +1233,368 @@ function hideAppToast() {
   }, 180);
 }
 
+
+function getExpenseDraftValue(expense, field) {
+  if (!expense) return "";
+
+  if (field === "amount") {
+    const value = expense.amountEditValue !== "" && expense.amountEditValue != null
+      ? expense.amountEditValue
+      : expense.amount;
+
+    return Number(parseCurrencyInput(value));
+  }
+
+  if (field === "date") {
+    return expense.dateEditValue !== "" && expense.dateEditValue != null
+      ? String(expense.dateEditValue || "").trim()
+      : String(expense.date || "").trim();
+  }
+
+  return String(expense[field] ?? "").trim();
+}
+
+function hasExpenseUnsavedChanges(options = {}) {
+  if (!isEditMode) return false;
+
+  const { commitActive = true } = options;
+
+  if (commitActive) {
+    commitActiveTableCell();
+  }
+
+  if (draftExpenses.length !== expenses.length) return true;
+
+  const savedById = new Map(expenses.map(expense => [String(expense.id), expense]));
+
+  return draftExpenses.some(draftExpense => {
+    const savedExpense = savedById.get(String(draftExpense.id));
+
+    if (!savedExpense) return true;
+    if (draftExpense.amountError || draftExpense.dateError) return true;
+
+    return (
+      String(savedExpense.expenseName || "").trim() !== getExpenseDraftValue(draftExpense, "expenseName") ||
+      String(savedExpense.category || "").trim() !== getExpenseDraftValue(draftExpense, "category") ||
+      Number(savedExpense.amount) !== getExpenseDraftValue(draftExpense, "amount") ||
+      String(savedExpense.date || "").trim() !== getExpenseDraftValue(draftExpense, "date") ||
+      String(savedExpense.description || "").trim() !== getExpenseDraftValue(draftExpense, "description")
+    );
+  });
+}
+
+function hasAdminUsersUnsavedChanges(options = {}) {
+  if (!isAdminEditMode) return false;
+
+  const { commitActive = true } = options;
+
+  if (commitActive) {
+    commitAdminEditableCell(document.activeElement?.closest?.("[data-admin-field]"));
+  }
+
+  if (draftAdminUsers.length !== adminUsers.length) return true;
+
+  const savedById = new Map(adminUsers.map(user => [String(user.id), user]));
+
+  return draftAdminUsers.some(draftUser => {
+    const savedUser = savedById.get(String(draftUser.id));
+    return !savedUser || isAdminUserDifferent(savedUser, draftUser);
+  });
+}
+
+function hasEditableTableUnsavedChanges(options = {}) {
+  return hasExpenseUnsavedChanges(options) || hasAdminUsersUnsavedChanges(options);
+}
+
+function discardUnsavedEditableTableChanges() {
+  if (isEditMode) {
+    draftExpenses = cloneExpenses(expenses);
+    isEditMode = false;
+    selectedEditRowIndex = null;
+    activeEditCell = null;
+    clearEditModeOrder();
+
+    if (editTableBtn) editTableBtn.textContent = "Edit";
+    if (cancelTableBtn) cancelTableBtn.classList.add("inactive");
+
+    clearStatus();
+    clearAddExpenseModeError();
+    renderExpenses();
+  }
+
+  if (isAdminEditMode) {
+    isAdminEditMode = false;
+    selectedAdminUserIndex = null;
+    draftAdminUsers = adminUsers.map(user => ({ ...user }));
+    adminUserInvalidCells = {};
+    updateAdminEditButtons();
+    renderAdminUsers();
+  }
+}
+
+function ensureUnsavedChangesDialog() {
+  let dialog = document.getElementById("unsaved-changes-dialog");
+
+  if (dialog) return dialog;
+
+  dialog = document.createElement("div");
+  dialog.id = "unsaved-changes-dialog";
+  dialog.className = "unsaved-changes-modal";
+  dialog.hidden = true;
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "unsaved-changes-title");
+  dialog.setAttribute("aria-describedby", "unsaved-changes-message");
+
+  dialog.innerHTML = `
+    <div class="unsaved-changes-dialog-card" role="document">
+      <button id="unsaved-changes-close-btn" class="unsaved-changes-close-btn" type="button" aria-label="Close dialog">×</button>
+      <div class="unsaved-changes-icon" aria-hidden="true">!</div>
+      <div class="unsaved-changes-copy">
+        <h3 id="unsaved-changes-title">Unsaved Changes</h3>
+        <p id="unsaved-changes-message">Are you sure you want to leave this page?</p>
+        <p id="unsaved-changes-warning">Your changes will be lost.</p>
+      </div>
+      <div class="unsaved-changes-actions">
+        <button id="unsaved-changes-stay-btn" type="button" class="table-action-btn">Keep editing</button>
+        <button id="unsaved-changes-leave-btn" type="button" class="table-action-btn secondary">Leave without saving</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(dialog);
+
+  dialog.querySelector("#unsaved-changes-stay-btn")?.addEventListener("click", () => {
+    closeUnsavedChangesDialog(false);
+  });
+
+  dialog.querySelector("#unsaved-changes-leave-btn")?.addEventListener("click", () => {
+    closeUnsavedChangesDialog(true);
+  });
+
+  dialog.querySelector("#unsaved-changes-close-btn")?.addEventListener("click", () => {
+    closeUnsavedChangesDialog(false);
+  });
+
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeUnsavedChangesDialog(false);
+    }
+  });
+
+  return dialog;
+}
+
+function closeUnsavedChangesDialog(shouldLeave) {
+  const dialog = document.getElementById("unsaved-changes-dialog");
+
+  if (dialog) {
+    dialog.classList.remove("show");
+
+    setTimeout(() => {
+      dialog.hidden = true;
+    }, 180);
+  }
+
+  document.body.classList.remove("modal-open");
+
+  const resolver = unsavedChangesDialogResolve;
+  unsavedChangesDialogResolve = null;
+
+  if (!shouldLeave) {
+    setTimeout(() => {
+      scrollToActiveEditableTableSaveButton();
+      unsavedChangesLastFocusedElement = null;
+    }, 210);
+  } else {
+    unsavedChangesLastFocusedElement = null;
+  }
+
+  if (resolver) {
+    resolver(Boolean(shouldLeave));
+  }
+}
+
+function showUnsavedChangesDialog() {
+  const dialog = ensureUnsavedChangesDialog();
+
+  if (unsavedChangesDialogResolve) {
+    return new Promise(resolve => {
+      const previousResolve = unsavedChangesDialogResolve;
+      unsavedChangesDialogResolve = value => {
+        previousResolve(value);
+        resolve(value);
+      };
+    });
+  }
+
+  unsavedChangesLastFocusedElement = document.activeElement;
+  dialog.hidden = false;
+  document.body.classList.add("modal-open");
+
+  requestAnimationFrame(() => {
+    dialog.classList.add("show");
+    dialog.querySelector("#unsaved-changes-stay-btn")?.focus({ preventScroll: true });
+  });
+
+  return new Promise(resolve => {
+    unsavedChangesDialogResolve = resolve;
+  });
+}
+
+function ensureDeleteUserDialog() {
+  let dialog = document.getElementById("delete-user-dialog");
+
+  if (dialog) return dialog;
+
+  dialog = document.createElement("div");
+  dialog.id = "delete-user-dialog";
+  dialog.className = "unsaved-changes-modal";
+  dialog.hidden = true;
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "delete-user-title");
+  dialog.setAttribute("aria-describedby", "delete-user-message");
+
+  dialog.innerHTML = `
+    <div class="unsaved-changes-dialog-card" role="document">
+      <button id="delete-user-close-btn" class="unsaved-changes-close-btn" type="button" aria-label="Close dialog">×</button>
+      <div class="unsaved-changes-icon" aria-hidden="true">!</div>
+      <div class="unsaved-changes-copy">
+        <h3 id="delete-user-title">Remove User</h3>
+        <p id="delete-user-message">Are you sure you want to remove this user?</p>
+        <p id="delete-user-warning">This also removes their expenses.</p>
+      </div>
+      <div class="unsaved-changes-actions">
+        <button id="delete-user-cancel-btn" type="button" class="table-action-btn">Keep user</button>
+        <button id="delete-user-confirm-btn" type="button" class="table-action-btn secondary">Remove user</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(dialog);
+
+  dialog.querySelector("#delete-user-cancel-btn")?.addEventListener("click", () => {
+    closeDeleteUserDialog(false);
+  });
+
+  dialog.querySelector("#delete-user-confirm-btn")?.addEventListener("click", () => {
+    closeDeleteUserDialog(true);
+  });
+
+  dialog.querySelector("#delete-user-close-btn")?.addEventListener("click", () => {
+    closeDeleteUserDialog(false);
+  });
+
+  dialog.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeDeleteUserDialog(false);
+    }
+  });
+
+  return dialog;
+}
+
+function closeDeleteUserDialog(shouldDelete) {
+  const dialog = document.getElementById("delete-user-dialog");
+
+  if (dialog) {
+    dialog.classList.remove("show");
+
+    setTimeout(() => {
+      dialog.hidden = true;
+    }, 180);
+  }
+
+  document.body.classList.remove("modal-open");
+
+  const resolver = deleteUserDialogResolve;
+  deleteUserDialogResolve = null;
+
+  if (resolver) {
+    resolver(Boolean(shouldDelete));
+  }
+}
+
+function showDeleteUserDialog(user) {
+  const dialog = ensureDeleteUserDialog();
+  const message = dialog.querySelector("#delete-user-message");
+  const warning = dialog.querySelector("#delete-user-warning");
+  const userLabel = getAdminUserErrorLabel(user);
+
+  if (message) {
+    message.textContent = `Are you sure you want to remove ${userLabel}?`;
+  }
+
+  if (warning) {
+    warning.textContent = "This also removes their expenses.";
+  }
+
+  if (deleteUserDialogResolve) {
+    return new Promise(resolve => {
+      const previousResolve = deleteUserDialogResolve;
+      deleteUserDialogResolve = value => {
+        previousResolve(value);
+        resolve(value);
+      };
+    });
+  }
+
+  dialog.hidden = false;
+  document.body.classList.add("modal-open");
+
+  requestAnimationFrame(() => {
+    dialog.classList.add("show");
+    dialog.querySelector("#delete-user-cancel-btn")?.focus({ preventScroll: true });
+  });
+
+  return new Promise(resolve => {
+    deleteUserDialogResolve = resolve;
+  });
+}
+
+function hasOpenEditableTableSession(options = {}) {
+  const { commitActive = true } = options;
+
+  if (!isEditMode && !isAdminEditMode) return false;
+
+  if (commitActive) {
+    if (isEditMode) {
+      commitActiveTableCell();
+    }
+
+    if (isAdminEditMode) {
+      commitAdminEditableCell(document.activeElement?.closest?.("[data-admin-field]"));
+    }
+  }
+
+  return true;
+}
+
+async function confirmDiscardUnsavedChanges() {
+  if (!hasOpenEditableTableSession()) return true;
+  return showUnsavedChangesDialog();
+}
+
+async function guardedResetDashboardView(event) {
+  event?.preventDefault?.();
+
+  if (!(await confirmDiscardUnsavedChanges())) return;
+
+  resetDashboardView();
+}
+
+async function handleAdminRefreshClick(event) {
+  event?.preventDefault?.();
+
+  if (!(await confirmDiscardUnsavedChanges())) return;
+
+  discardUnsavedEditableTableChanges();
+  await loadAdminProfileData();
+}
+
 function updatePaginationDisplay(totalItems, startIndex = 0, endIndex = 0) {
   if (!pageIndicator || !prevPageBtn || !nextPageBtn) return;
 
@@ -1167,6 +1608,25 @@ function updatePaginationDisplay(totalItems, startIndex = 0, endIndex = 0) {
   pageIndicator.textContent = `${startIndex}-${endIndex} of ${totalItems}`;
   prevPageBtn.disabled = currentPage === 1;
   nextPageBtn.disabled = endIndex >= totalItems;
+}
+
+function updateAdminUsersPaginationDisplay(totalItems, startIndex = 0, endIndex = 0) {
+  const indicator = document.getElementById("admin-users-page-indicator");
+  const prevBtn = document.getElementById("admin-users-prev-page-btn");
+  const nextBtn = document.getElementById("admin-users-next-page-btn");
+
+  if (!indicator || !prevBtn || !nextBtn) return;
+
+  if (totalItems === 0) {
+    indicator.textContent = "0-0 of 0";
+    prevBtn.disabled = true;
+    nextBtn.disabled = true;
+    return;
+  }
+
+  indicator.textContent = `${startIndex}-${endIndex} of ${totalItems}`;
+  prevBtn.disabled = adminUsersPage === 1;
+  nextBtn.disabled = endIndex >= totalItems;
 }
 
 function destroyCharts() {
@@ -2315,11 +2775,51 @@ function getCategoryOptions(selectedCategory) {
     .join("");
 }
 
+function createExpenseCategoryCellMarkup(selectedCategory, index, isEditable) {
+  const options = Array.from(categoryInput.options);
+  const activeOption =
+    options.find(option => option.value === selectedCategory) ||
+    options[0];
+  const label = activeOption?.textContent?.trim() || selectedCategory || "Category";
+  const tabIndex = isEditable ? "0" : "-1";
+
+  return `
+    <details class="expense-category-menu" data-expense-category-menu>
+      <summary
+        class="expense-category-trigger"
+        data-field="category"
+        data-index="${index}"
+        aria-label="Category: ${escapeHtml(label)}"
+        tabindex="${tabIndex}"
+      >
+        <span class="expense-category-label">${escapeHtml(label)}</span>
+        <span class="toolbar-chevron" aria-hidden="true">›</span>
+      </summary>
+      <div class="expense-category-menu-panel">
+        ${options.map(option => {
+          const value = option.value;
+          const text = option.textContent.trim();
+
+          return `
+            <button
+              class="expense-category-option ${value === selectedCategory ? "active" : ""}"
+              data-expense-category-value="${escapeHtml(value)}"
+              data-index="${index}"
+              type="button"
+              ${!isEditable ? "disabled" : ""}
+            >${escapeHtml(text)}</button>
+          `;
+        }).join("")}
+      </div>
+    </details>
+  `;
+}
+
 function applyRowTooltips(row, expense) {
   const rowCells = row.querySelectorAll("td");
   const titleCell = row.querySelector("td.title-cell");
   const titleText = titleCell?.querySelector(".cell-text");
-  const categorySelect = row.querySelector("td.category-cell select");
+  const categoryTrigger = row.querySelector("td.category-cell .expense-category-trigger");
   const dateCell = row.querySelector("td.date-cell");
   const dateText = dateCell?.querySelector(".cell-text");
 
@@ -2341,8 +2841,8 @@ function applyRowTooltips(row, expense) {
     rowCells[1].title = amountTooltip;
   }
 
-  if (categorySelect) {
-    categorySelect.title = expense.category || "";
+  if (categoryTrigger) {
+    categoryTrigger.title = expense.category || "";
   }
 
   if (dateCell) dateCell.title = dateTooltip;
@@ -2395,7 +2895,6 @@ function createExpenseRow(expense, index) {
   const rowIsEditable = isEditMode && (selectedEditRowIndex == null || selectedEditRowIndex === index);
   const lockedClass = rowIsEditable ? "" : "locked";
   const editableValue = rowIsEditable ? "true" : "false";
-  const categoryOptions = getCategoryOptions(expense.category);
   const isNewlyAdded = String(expense.id) === String(newlyAddedExpenseId);
   const hasAmountError = Boolean(expense.amountError);
   const hasDateError = Boolean(expense.dateError);
@@ -2441,14 +2940,7 @@ function createExpenseRow(expense, index) {
     </td>
 
     <td class="category-cell ${lockedClass}">
-      <select
-        class="editable"
-        data-field="category"
-        data-index="${index}"
-        ${!rowIsEditable ? "disabled" : ""}
-      >
-        ${categoryOptions}
-      </select>
+      ${createExpenseCategoryCellMarkup(expense.category, index, rowIsEditable)}
     </td>
 
     <td
@@ -2913,7 +3405,7 @@ function renderChart() {
           // Prevents first/last hover circles from being clipped.
           clip: false,
 
-          pointRadius: data.length === 1 ? 5 : 0,
+          pointRadius: data.length ? 3.5 : 0,
           pointHoverRadius: 7,
           pointBackgroundColor: "#FFFFFF",
           pointBorderColor: "#48DDB6",
@@ -2932,8 +3424,13 @@ function renderChart() {
           tension: 0,
           fill: false,
           clip: false,
-          pointRadius: 0,
-          pointHoverRadius: 0,
+          pointRadius: labels.length ? 3.5 : 0,
+          pointHoverRadius: 5.5,
+          pointBackgroundColor: "#FFFFFF",
+          pointBorderColor: "rgba(245, 158, 11, 0.95)",
+          pointBorderWidth: 2,
+          pointHoverBorderWidth: 3,
+          hitRadius: 12,
           borderWidth: 2
         }
       ]
@@ -3578,6 +4075,12 @@ function resetDashboardView() {
   clearStatus();
   clearAddExpenseModeError();
   setTodayDate();
+  isAdminPanelOpen = false;
+  isAdminEditMode = false;
+  selectedAdminUserIndex = null;
+  draftAdminUsers = [];
+  renderAdminPanelState();
+  renderPageSections();
   renderExpenses();
 
   window.scrollTo({
@@ -3606,52 +4109,115 @@ function cacheLoginElements() {
   loginSubmitBtn = document.getElementById("login-submit-btn");
 }
 
-function ensureLoginPanel() {
-  if (!loginPanel) {
-    const panel = document.createElement("div");
-    panel.id = "login-panel";
-    panel.className = "header-login-panel";
+function cacheAuthPageElements() {
+  authPage = document.getElementById("auth-page");
+  loginForm = document.getElementById("login-form");
+  loginIdentifierInput = document.getElementById("login-identifier");
+  loginPasswordInput = document.getElementById("login-password");
+  loginIdentifierError = document.getElementById("login-identifier-error");
+  loginPasswordError = document.getElementById("login-password-error");
+  loginSubmitBtn = document.getElementById("login-submit-btn");
+}
 
-    panel.innerHTML = `
-      <form id="login-form" class="header-login-form" novalidate>
-        <div class="field-group login-field-group">
-          <label class="sr-only" for="login-identifier">Email or username</label>
-          <input
-            id="login-identifier"
-            type="text"
-            placeholder="Email or username"
-            autocomplete="username"
-          >
-          <p id="login-identifier-error" class="error-text"></p>
+function ensureAuthPage() {
+  if (!authPage) {
+    const section = document.createElement("section");
+    section.id = "auth-page";
+    section.className = "auth-page";
+
+    section.innerHTML = `
+      <div class="auth-copy">
+        <p class="auth-kicker">Welcome to Spendflow</p>
+        <h2 id="auth-heading">Hi there, ready to start tracking your spending?</h2>
+        <p>
+          Log in or register to manage your expenses, review spending patterns,
+          and keep your account activity connected to your profile.
+        </p>
+      </div>
+
+      <div class="auth-card">
+        <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+          <button id="auth-login-tab" class="auth-tab active" type="button" data-auth-mode="login">Log in</button>
+          <button id="auth-register-tab" class="auth-tab" type="button" data-auth-mode="register">Register</button>
         </div>
 
-        <div class="field-group login-field-group">
-          <label class="sr-only" for="login-password">Password</label>
-          <input
-            id="login-password"
-            type="password"
-            placeholder="Password"
-            autocomplete="current-password"
-          >
-          <p id="login-password-error" class="error-text"></p>
-        </div>
+        <form id="login-form" class="auth-form" novalidate>
+          <div class="field-group login-field-group">
+            <label for="login-identifier">Email or username</label>
+            <input
+              id="login-identifier"
+              type="text"
+              placeholder="Email or username"
+              autocomplete="username"
+            >
+            <p id="login-identifier-error" class="error-text"></p>
+          </div>
 
-        <button id="login-submit-btn" class="login-submit-btn" type="submit">
-          Log in
-        </button>
-      </form>
+          <div class="field-group login-field-group">
+            <label for="login-password">Password</label>
+            <input
+              id="login-password"
+              type="password"
+              placeholder="Password"
+              autocomplete="current-password"
+            >
+            <p id="login-password-error" class="error-text"></p>
+          </div>
+
+          <button id="login-submit-btn" class="login-submit-btn auth-submit-btn" type="submit">
+            Log in
+          </button>
+        </form>
+
+        <form id="register-form" class="auth-form" novalidate hidden>
+          <div class="field-group">
+            <label for="register-username">Username</label>
+            <input id="register-username" type="text" placeholder="Username" autocomplete="username">
+            <p id="register-username-error" class="error-text"></p>
+          </div>
+
+          <div class="field-group">
+            <label for="register-email">Email</label>
+            <input id="register-email" type="email" placeholder="Email" autocomplete="email">
+            <p id="register-email-error" class="error-text"></p>
+          </div>
+
+          <div class="field-group">
+            <label for="register-password">Password</label>
+            <input id="register-password" type="password" placeholder="At least 6 characters" autocomplete="new-password">
+            <p id="register-password-error" class="error-text"></p>
+          </div>
+
+          <button id="register-submit-btn" class="login-submit-btn auth-submit-btn" type="submit">
+            Create account
+          </button>
+        </form>
+      </div>
     `;
 
-    const headerRight = document.querySelector(".header-right");
-    const profile = document.querySelector(".profile");
+    const main = document.querySelector("main");
+    const status = document.getElementById("app-status");
 
-    if (headerRight && profile) {
-      headerRight.insertBefore(panel, profile);
+    if (status) {
+      status.insertAdjacentElement("afterend", section);
     } else {
-      headerRight?.appendChild(panel);
+      main?.prepend(section);
     }
+
+    authPage = section;
   }
 
+  if (!authPage.dataset.bound) {
+    authPage.dataset.bound = "true";
+    authPage.addEventListener("click", handleAuthPageClick);
+    authPage.querySelector("#register-form")?.addEventListener("submit", handleRegisterSubmit);
+  }
+
+  cacheAuthPageElements();
+}
+
+function ensureLoginPanel() {
+  ensureAuthPage();
   cacheLoginElements();
 }
 
@@ -3660,21 +4226,29 @@ function getDisplayNameFromLoginValue(value) {
 
   if (!cleanValue) return "";
 
-  if (cleanValue.includes("@")) {
-    return cleanValue.split("@")[0];
-  }
+  const displayValue = cleanValue.includes("@") ? cleanValue.split("@")[0] : cleanValue;
 
-  return cleanValue;
+  return capitalizeFirstLetter(displayValue);
+}
+
+function capitalizeFirstLetter(value) {
+  const cleanValue = String(value || "").trim();
+
+  if (!cleanValue) return "";
+
+  return cleanValue.charAt(0).toUpperCase() + cleanValue.slice(1);
 }
 
 function getCurrentDisplayName() {
-  return (
+  const displayName = (
     currentUser?.displayName ||
     currentUser?.username ||
     getDisplayNameFromLoginValue(currentUser?.email) ||
     currentUser?.name ||
     "Marsi"
   );
+
+  return capitalizeFirstLetter(displayName);
 }
 
 function updateGreetingText() {
@@ -3731,9 +4305,148 @@ function validateLoginForm() {
   };
 }
 
+function clearRegisterErrors() {
+  ["username", "email", "password"].forEach(field => {
+    const input = document.getElementById(`register-${field}`);
+    const error = document.getElementById(`register-${field}-error`);
+
+    input?.classList.remove("error");
+    if (error) error.textContent = "";
+  });
+}
+
+function setRegisterFieldError(field, message) {
+  const input = document.getElementById(`register-${field}`);
+  const error = document.getElementById(`register-${field}-error`);
+
+  input?.classList.add("error");
+  if (error) error.textContent = message;
+}
+
+function validateRegisterForm() {
+  const username = document.getElementById("register-username")?.value.trim() || "";
+  const email = document.getElementById("register-email")?.value.trim() || "";
+  const password = document.getElementById("register-password")?.value || "";
+  let hasError = false;
+
+  clearRegisterErrors();
+
+  if (!username) {
+    setRegisterFieldError("username", "Username is required");
+    hasError = true;
+  }
+
+  if (!email) {
+    setRegisterFieldError("email", "Email is required");
+    hasError = true;
+  } else if (!isValidEmailFormat(email)) {
+    setRegisterFieldError("email", "Please enter a valid email");
+    hasError = true;
+  }
+
+  if (!password) {
+    setRegisterFieldError("password", "Password is required");
+    hasError = true;
+  } else if (password.length < 6) {
+    setRegisterFieldError("password", "Use at least 6 characters");
+    hasError = true;
+  }
+
+  return {
+    isValid: !hasError,
+    username,
+    email,
+    password
+  };
+}
+
+function setAuthMode(mode) {
+  authMode = mode === "register" ? "register" : "login";
+
+  const loginTab = document.getElementById("auth-login-tab");
+  const registerTab = document.getElementById("auth-register-tab");
+  const registerForm = document.getElementById("register-form");
+  const heading = document.getElementById("auth-heading");
+
+  loginForm = document.getElementById("login-form");
+
+  if (loginTab) loginTab.classList.toggle("active", authMode === "login");
+  if (registerTab) registerTab.classList.toggle("active", authMode === "register");
+  if (loginForm) loginForm.hidden = authMode !== "login";
+  if (registerForm) registerForm.hidden = authMode !== "register";
+  if (heading) {
+    heading.textContent = "Hi there, ready to start tracking your spending?";
+  }
+
+  clearLoginErrors();
+  clearRegisterErrors();
+}
+
+function handleAuthPageClick(event) {
+  const tab = event.target.closest("[data-auth-mode]");
+
+  if (!tab) return;
+
+  setAuthMode(tab.dataset.authMode);
+}
+
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+
+  const validation = validateRegisterForm();
+  const submitBtn = document.getElementById("register-submit-btn");
+
+  if (!validation.isValid) return;
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Creating...";
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username: validation.username,
+        email: validation.email,
+        password: validation.password
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.message || "Could not create account");
+    }
+
+    document.getElementById("register-form")?.reset();
+    setAuthMode("login");
+
+    if (loginIdentifierInput) {
+      loginIdentifierInput.value = validation.username;
+    }
+
+    showAppToast("Account created. Log in to continue.", "success");
+  } catch (error) {
+    console.error("Registration failed:", error);
+    setRegisterFieldError("password", error.message || "Could not create account");
+    showAppToast(error.message || "Could not create account", "error");
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Create account";
+    }
+  }
+}
+
 function focusLoginPanel() {
   ensureLoginPanel();
   renderAuthState();
+
+  setAuthMode("login");
 
   setTimeout(() => {
     loginIdentifierInput?.focus({ preventScroll: true });
@@ -3744,6 +4457,10 @@ function clearSessionData() {
   authToken = "";
   currentUser = null;
   isLoggedIn = false;
+  adminUsers = [];
+  adminActivity = [];
+  adminUsersPage = 1;
+  isAdminPanelOpen = false;
 
   localStorage.removeItem(TOKEN_STORAGE_KEY);
   localStorage.removeItem(USER_STORAGE_KEY);
@@ -3761,6 +4478,914 @@ function getAuthHeaders(includeJson = false) {
   }
 
   return headers;
+}
+
+function isAdminUser() {
+  return currentUser?.role === "admin";
+}
+
+function ensureAdminProfileControls() {
+  const dropdown = document.querySelector(".dropdown");
+
+  if (!dropdown) return;
+
+  userProfileBtn = document.getElementById("user-profile-btn");
+
+  if (!userProfileBtn) {
+    userProfileBtn = document.createElement("button");
+    userProfileBtn.id = "user-profile-btn";
+    userProfileBtn.className = "user-profile-btn";
+    userProfileBtn.type = "button";
+    userProfileBtn.textContent = "User profile";
+
+    if (logoutBtn && logoutBtn.parentElement === dropdown) {
+      dropdown.insertBefore(userProfileBtn, logoutBtn);
+    } else {
+      dropdown.prepend(userProfileBtn);
+    }
+
+    userProfileBtn.addEventListener("click", handleUserProfileClick);
+  }
+
+  userProfileBtn.hidden = !isLoggedIn || !isAdminUser();
+}
+
+function ensureAdminPanel() {
+  let panel = document.getElementById("admin-profile-panel");
+
+  if (!panel) {
+    panel = document.createElement("section");
+    panel.id = "admin-profile-panel";
+    panel.className = "admin-profile-panel";
+    panel.hidden = true;
+
+    panel.innerHTML = `
+      <div class="admin-profile-header">
+        <div>
+          <h3>Admin account management</h3>
+          <p>Edit existing user accounts and review login, logout, and CRUD activity.</p>
+        </div>
+        <button id="admin-refresh-btn" class="admin-secondary-btn" type="button">Refresh</button>
+      </div>
+
+      <div class="admin-profile-grid">
+        <div class="admin-card admin-users-card">
+          <div class="admin-card-header">
+            <div>
+              <h4>Users</h4>
+              <p>Review accounts, edit profile details, and adjust access roles.</p>
+            </div>
+            <span id="admin-user-count">0 accounts</span>
+          </div>
+          <div class="table-toolbar admin-users-toolbar" aria-label="User account controls">
+            <div class="table-search admin-user-search">
+              <label class="sr-only" for="admin-user-search">Search users</label>
+              <input id="admin-user-search" type="text" placeholder="Search users">
+              <button class="search-icon-btn" type="button" aria-label="Search users" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <path d="M20 20l-3.4-3.4"></path>
+                </svg>
+              </button>
+            </div>
+
+            <details id="admin-role-filter-menu" class="toolbar-menu filter-menu">
+              <summary class="toolbar-button filter-menu-trigger">
+                <span id="admin-role-filter-label">Role: All</span>
+                <span class="toolbar-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="toolbar-menu-panel filter-menu-panel">
+                <button class="admin-role-filter-option filter-btn active" data-admin-role-filter="All" type="button">All</button>
+                <button class="admin-role-filter-option filter-btn" data-admin-role-filter="admin" type="button">Admin</button>
+                <button class="admin-role-filter-option filter-btn" data-admin-role-filter="user" type="button">User</button>
+              </div>
+            </details>
+
+            <details id="admin-user-sort-menu" class="toolbar-menu sort-menu admin-user-sort-menu">
+              <summary class="toolbar-button sort-menu-trigger">
+                <span id="admin-user-sort-label">Username: A to Z</span>
+                <span class="toolbar-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="toolbar-menu-panel sort-menu-panel">
+                <button class="admin-user-sort-option sort-option active" data-admin-user-sort="username-asc" type="button">Username: A to Z</button>
+                <button class="admin-user-sort-option sort-option" data-admin-user-sort="username-desc" type="button">Username: Z to A</button>
+              </div>
+            </details>
+
+            <button id="admin-users-clear-btn" class="toolbar-clear" type="button">Clear</button>
+          </div>
+          <div class="admin-table-shell">
+            <table class="admin-table admin-users-table">
+              <thead>
+                <tr>
+                  <th><span class="th-text">Username</span></th>
+                  <th><span class="th-text">Email</span></th>
+                  <th><span class="th-text">Role</span></th>
+                  <th class="actions-header"><span class="th-text"></span></th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-body">
+                <tr>
+                  <td colspan="4">No users loaded yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-footer admin-users-footer">
+            <div class="table-pagination admin-users-pagination">
+              <span id="admin-users-page-indicator" class="page-indicator">0-0 of 0</span>
+              <button id="admin-users-prev-page-btn" type="button" class="page-btn" aria-label="Previous users page">&#8249;</button>
+              <button id="admin-users-next-page-btn" type="button" class="page-btn" aria-label="Next users page">&#8250;</button>
+            </div>
+          </div>
+          <div class="admin-table-actions">
+            <button id="admin-edit-users-btn" type="button" class="table-action-btn">Edit</button>
+            <button id="admin-cancel-users-btn" type="button" class="table-action-btn secondary inactive">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="admin-card admin-activity-card">
+        <div class="admin-card-header">
+          <h4>User activity</h4>
+          <span id="admin-activity-count">0 events</span>
+        </div>
+        <div class="admin-table-shell">
+          <table class="admin-table admin-activity-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="admin-activity-body">
+              <tr>
+                <td colspan="4">No activity loaded yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    const hero = document.querySelector(".add.expense-hero");
+
+    if (hero) {
+      hero.insertAdjacentElement("beforebegin", panel);
+    } else {
+      document.querySelector("main")?.appendChild(panel);
+    }
+  }
+
+  if (!panel.dataset.bound) {
+    panel.dataset.bound = "true";
+
+    panel.querySelector("#admin-refresh-btn")?.addEventListener("click", handleAdminRefreshClick);
+    panel.querySelector("#admin-edit-users-btn")?.addEventListener("click", handleAdminEditUsersClick);
+    panel.querySelector("#admin-cancel-users-btn")?.addEventListener("click", cancelAdminUserEdits);
+    panel.querySelector("#admin-user-search")?.addEventListener("input", handleAdminUserSearchInput);
+    panel.addEventListener("focusout", handleAdminUsersFocusOut);
+    panel.addEventListener("change", handleAdminPanelChange);
+    panel.addEventListener("click", handleAdminPanelClick);
+  }
+
+  return panel;
+}
+
+function renderAdminPanelState() {
+  const panel = ensureAdminPanel();
+
+  if (!panel) return;
+
+  panel.hidden = !isLoggedIn || !isAdminUser() || !isAdminPanelOpen;
+}
+
+function renderPageSections() {
+  ensureAuthPage();
+
+  if (authPage) {
+    authPage.hidden = isLoggedIn;
+  }
+
+  const showDashboard = isLoggedIn && !isAdminPanelOpen;
+
+  document.querySelector(".add.expense-hero")?.toggleAttribute("hidden", !showDashboard);
+  tableSection?.toggleAttribute("hidden", !showDashboard);
+  trendSection?.toggleAttribute("hidden", !showDashboard);
+
+  document.querySelector(".summary-section")?.toggleAttribute("hidden", !showDashboard);
+  document.querySelector(".summary-grid")?.toggleAttribute("hidden", !showDashboard);
+  document.querySelector(".summary-right")?.toggleAttribute("hidden", !showDashboard);
+  document.querySelector(".chart-container")?.toggleAttribute("hidden", !showDashboard);
+}
+
+function getAdminUsername(user) {
+  return String(
+    user?.username ||
+    user?.name ||
+    getDisplayNameFromLoginValue(user?.email) ||
+    ""
+  ).trim();
+}
+
+function getAdminEditableUsername(user) {
+  return String(user?.username || user?.name || "").trim();
+}
+
+function getAdminUserErrorLabel(user) {
+  return getAdminEditableUsername(user) || String(user?.email || "").trim() || "this user";
+}
+
+function getVisibleAdminUsers(sourceUsers) {
+  const search = adminUserSearch.trim().toLowerCase();
+
+  return sourceUsers
+    .map((user, index) => ({ user, index }))
+    .filter(({ user }) => {
+      const roleMatches = adminRoleFilter === "All" || user.role === adminRoleFilter;
+
+      if (!roleMatches) return false;
+      if (!search) return true;
+
+      return [
+        getAdminUsername(user),
+        user.email,
+        user.role
+      ].some(value => String(value || "").toLowerCase().includes(search));
+    })
+    .sort((a, b) => {
+      const aName = getAdminUsername(a.user).toLowerCase();
+      const bName = getAdminUsername(b.user).toLowerCase();
+      const comparison = aName.localeCompare(bName);
+      return adminUserSort === "username-desc" ? -comparison : comparison;
+    });
+}
+
+function syncAdminUserToolbarState() {
+  const searchInput = document.getElementById("admin-user-search");
+  const searchBtn = document.querySelector(".admin-user-search .search-icon-btn");
+  const roleLabel = document.getElementById("admin-role-filter-label");
+  const sortLabel = document.getElementById("admin-user-sort-label");
+
+  if (searchInput && searchInput.value !== adminUserSearch) {
+    searchInput.value = adminUserSearch;
+  }
+
+  if (searchBtn) {
+    searchBtn.disabled = adminUserSearch.trim() === "";
+  }
+
+  if (roleLabel) {
+    roleLabel.textContent = `Role: ${adminRoleFilter === "All" ? "All" : capitalizeFirstLetter(adminRoleFilter)}`;
+  }
+
+  if (sortLabel) {
+    sortLabel.textContent = adminUserSort === "username-desc"
+      ? "Username: Z to A"
+      : "Username: A to Z";
+  }
+
+  document.querySelectorAll(".admin-role-filter-option").forEach(option => {
+    option.classList.toggle("active", option.dataset.adminRoleFilter === adminRoleFilter);
+  });
+
+  document.querySelectorAll(".admin-user-sort-option").forEach(option => {
+    option.classList.toggle("active", option.dataset.adminUserSort === adminUserSort);
+  });
+}
+
+function renderAdminUsers() {
+  const body = document.getElementById("admin-users-body");
+  const count = document.getElementById("admin-user-count");
+  const usersTable = document.querySelector(".admin-users-card .admin-table");
+
+  if (!body) return;
+
+  const sourceUsers = isAdminEditMode ? draftAdminUsers : adminUsers;
+  const visibleUsers = getVisibleAdminUsers(sourceUsers);
+  const totalPages = Math.max(1, Math.ceil(visibleUsers.length / adminUsersRowsPerPage));
+
+  if (adminUsersPage > totalPages) {
+    adminUsersPage = totalPages;
+  }
+
+  if (adminUsersPage < 1) {
+    adminUsersPage = 1;
+  }
+
+  const startIndex = (adminUsersPage - 1) * adminUsersRowsPerPage;
+  const endIndex = startIndex + adminUsersRowsPerPage;
+  const paginatedUsers = visibleUsers.slice(startIndex, endIndex);
+
+  syncAdminUserToolbarState();
+
+  if (usersTable) {
+    usersTable.classList.toggle("global-edit-mode", isAdminEditMode && selectedAdminUserIndex == null);
+    usersTable.classList.toggle("row-edit-mode", isAdminEditMode && selectedAdminUserIndex != null);
+  }
+
+  if (count) {
+    count.textContent = `${visibleUsers.length} ${visibleUsers.length === 1 ? "account" : "accounts"}`;
+  }
+
+  if (visibleUsers.length === 0) {
+    body.innerHTML = `
+      <tr>
+        <td colspan="4">No users found.</td>
+      </tr>
+    `;
+    updateAdminUsersPaginationDisplay(0);
+    return;
+  }
+
+  body.innerHTML = paginatedUsers.map(({ user, index }) => {
+    const isCurrentUser = Number(user.id) === Number(currentUser?.id);
+    const username = getAdminUsername(user);
+    const rowIsEditable = isAdminEditMode && (selectedAdminUserIndex == null || selectedAdminUserIndex === index);
+    const lockedClass = rowIsEditable ? "" : "locked";
+    const editableValue = rowIsEditable ? "true" : "false";
+    const deleteLabel = isCurrentUser ? "Current user" : "Delete";
+    const usernameInvalid = Boolean(adminUserInvalidCells[`${index}:username`]);
+    const emailInvalid = Boolean(adminUserInvalidCells[`${index}:email`]);
+    const roleInvalid = Boolean(adminUserInvalidCells[`${index}:role`]);
+
+    return `
+      <tr class="${isAdminEditMode && selectedAdminUserIndex === index ? "selected-edit-row" : ""}">
+        <td
+          class="editable admin-username-cell ${lockedClass} ${usernameInvalid ? "invalid-edit-cell" : ""}"
+          data-admin-field="username"
+          data-admin-index="${index}"
+          contenteditable="${editableValue}"
+        >
+          <span class="cell-text">
+            ${escapeHtml(username)}
+          </span>
+        </td>
+        <td
+          class="editable admin-email-cell ${lockedClass} ${emailInvalid ? "invalid-edit-cell" : ""}"
+          data-admin-field="email"
+          data-admin-index="${index}"
+          contenteditable="${editableValue}"
+        >
+          <span class="cell-text">${escapeHtml(user.email)}</span>
+        </td>
+        <td class="admin-role-cell ${lockedClass} ${roleInvalid ? "invalid-edit-cell" : ""}">
+          ${createAdminRoleCellMarkup(user.role, index, rowIsEditable)}
+        </td>
+        <td>
+          <div class="admin-row-actions">
+            <button
+              class="row-icon-btn edit-row-btn ${isAdminEditMode ? "hidden-edit" : ""}"
+              data-admin-action="edit-user"
+              data-admin-index="${index}"
+              type="button"
+              aria-label="Edit user"
+              title="Edit user"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"></path>
+                <path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83Z"></path>
+              </svg>
+            </button>
+            <button
+              class="row-icon-btn delete-btn ${!isAdminEditMode ? "hidden-delete" : ""}"
+              data-admin-action="delete-user"
+              data-admin-index="${index}"
+              type="button"
+              aria-label="${deleteLabel}"
+              title="${deleteLabel}"
+              ${isCurrentUser ? "disabled" : ""}
+            >
+              ×
+            </button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  const startDisplay = startIndex + 1;
+  const endDisplay = Math.min(endIndex, visibleUsers.length);
+  updateAdminUsersPaginationDisplay(visibleUsers.length, startDisplay, endDisplay);
+}
+
+function createAdminRoleCellMarkup(role, index, isEditable) {
+  const cleanRole = role === "admin" ? "admin" : "user";
+  const label = capitalizeFirstLetter(cleanRole);
+  const tabIndex = isEditable ? "0" : "-1";
+
+  return `
+    <details class="admin-role-menu" data-admin-role-menu>
+      <summary
+        class="admin-role-trigger"
+        data-admin-field="role"
+        data-admin-index="${index}"
+        aria-label="Role: ${escapeHtml(label)}"
+        tabindex="${tabIndex}"
+      >
+        <span class="admin-role-label">${escapeHtml(label)}</span>
+        <span class="toolbar-chevron" aria-hidden="true">›</span>
+      </summary>
+      <div class="admin-role-menu-panel">
+        <button
+          class="admin-role-option ${cleanRole === "user" ? "active" : ""}"
+          data-admin-role-value="user"
+          data-admin-index="${index}"
+          type="button"
+          ${!isEditable ? "disabled" : ""}
+        >User</button>
+        <button
+          class="admin-role-option ${cleanRole === "admin" ? "active" : ""}"
+          data-admin-role-value="admin"
+          data-admin-index="${index}"
+          type="button"
+          ${!isEditable ? "disabled" : ""}
+        >Admin</button>
+      </div>
+    </details>
+  `;
+}
+
+function closeAdminRoleMenus(except = null) {
+  document.querySelectorAll(".admin-role-menu[open]").forEach(menu => {
+    if (menu !== except) {
+      menu.open = false;
+    }
+  });
+}
+
+function closeExpenseCategoryMenus(except = null) {
+  document.querySelectorAll(".expense-category-menu[open]").forEach(menu => {
+    if (menu !== except) {
+      menu.open = false;
+    }
+  });
+}
+
+function renderAdminActivity() {
+  const body = document.getElementById("admin-activity-body");
+  const count = document.getElementById("admin-activity-count");
+
+  if (!body) return;
+
+  if (count) {
+    count.textContent = `${adminActivity.length} ${adminActivity.length === 1 ? "event" : "events"}`;
+  }
+
+  if (adminActivity.length === 0) {
+    body.innerHTML = `
+      <tr>
+        <td colspan="4">No activity found.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  body.innerHTML = adminActivity.map(item => {
+    const userLabel = item.name || item.username || item.email || "Deleted user";
+
+    return `
+      <tr>
+        <td>${escapeHtml(formatActivityTimestamp(item.created_at))}</td>
+        <td>${escapeHtml(userLabel)}</td>
+        <td><span class="admin-activity-action">${escapeHtml(item.action)}</span></td>
+        <td>${escapeHtml(item.details || "")}</td>
+      </tr>
+    `;
+  }).join("");
+}
+
+async function fetchAdminJson(path, options = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(options.body ? true : false),
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401 || response.status === 403) {
+    clearSessionData();
+    renderAuthState();
+    renderExpenses();
+    throw new Error(data.message || "Your session expired. Please log in again.");
+  }
+
+  if (!response.ok) {
+    throw new Error(data.message || "Admin request failed");
+  }
+
+  return data;
+}
+
+async function loadAdminProfileData() {
+  if (!isAdminUser()) return;
+
+  ensureAdminPanel();
+
+  try {
+    const [users, activity] = await Promise.all([
+      fetchAdminJson("/admin/users"),
+      fetchAdminJson("/admin/activity")
+    ]);
+
+    adminUsers = Array.isArray(users) ? users : [];
+    draftAdminUsers = adminUsers.map(user => ({ ...user }));
+    adminUsersPage = 1;
+    adminUserInvalidCells = {};
+    adminActivity = Array.isArray(activity) ? activity : [];
+    updateAdminEditButtons();
+    renderAdminUsers();
+    renderAdminActivity();
+  } catch (error) {
+    console.error("Failed to load admin profile:", error);
+    showAppToast(error.message || "Could not load admin profile.", "error", null, "");
+  }
+}
+
+function updateAdminEditButtons() {
+  const editBtn = document.getElementById("admin-edit-users-btn");
+  const cancelBtn = document.getElementById("admin-cancel-users-btn");
+
+  if (editBtn) editBtn.textContent = isAdminEditMode ? "Save" : "Edit";
+  if (cancelBtn) cancelBtn.classList.toggle("inactive", !isAdminEditMode);
+}
+
+function startAdminRowEdit(index) {
+  if (!isAdminEditMode) {
+    isAdminEditMode = true;
+    draftAdminUsers = adminUsers.map(user => ({ ...user }));
+    adminUserInvalidCells = {};
+  }
+
+  selectedAdminUserIndex = Number.isInteger(Number(index)) ? Number(index) : null;
+  updateAdminEditButtons();
+  renderAdminUsers();
+
+  requestAnimationFrame(() => {
+    const cell = document.querySelector(
+      `[data-admin-field="username"][data-admin-index="${index}"]`
+    );
+    focusEditableCellAtEnd(cell);
+  });
+}
+
+function getAdminEditableCellText(cell) {
+  const text = cell?.querySelector(".cell-text");
+  return (text ? text.innerText : cell?.innerText || "").trim();
+}
+
+function updateDraftAdminUser(index, field, value) {
+  if (!isAdminEditMode || !draftAdminUsers[index]) return;
+
+  draftAdminUsers[index][field] = String(value || "").trim();
+  delete adminUserInvalidCells[`${index}:${field}`];
+
+  if (field === "username") {
+    draftAdminUsers[index].name = draftAdminUsers[index].username;
+  }
+}
+
+function commitAdminEditableCell(cell) {
+  if (!cell || !isAdminEditMode) return;
+
+  const index = Number(cell.dataset.adminIndex);
+  const field = cell.dataset.adminField;
+
+  if (!Number.isInteger(index) || !field) return;
+  if (field === "role") return;
+
+  updateDraftAdminUser(index, field, getAdminEditableCellText(cell));
+}
+
+function handleAdminUsersFocusOut(event) {
+  const cell = event.target.closest("[data-admin-field]");
+  if (cell?.dataset.adminField === "role") return;
+  commitAdminEditableCell(cell);
+}
+
+function validateDraftAdminUsers() {
+  adminUserInvalidCells = {};
+  let firstError = "";
+
+  draftAdminUsers.forEach((user, index) => {
+    const username = getAdminEditableUsername(user);
+    const email = String(user.email || "").trim();
+    const userLabel = getAdminUserErrorLabel(user);
+
+    if (!username) {
+      adminUserInvalidCells[`${index}:username`] = true;
+      firstError ||= "Username is required.";
+    }
+
+    if (!email) {
+      adminUserInvalidCells[`${index}:email`] = true;
+      firstError ||= `Email is required for ${userLabel}.`;
+    } else if (!isValidEmailFormat(email)) {
+      adminUserInvalidCells[`${index}:email`] = true;
+      firstError ||= `Please enter a valid email address for ${userLabel}.`;
+    }
+
+    if (!["admin", "user"].includes(user.role)) {
+      adminUserInvalidCells[`${index}:role`] = true;
+      firstError ||= `Please choose a valid role for ${userLabel}.`;
+    }
+  });
+
+  return firstError;
+}
+
+function isAdminUserDifferent(savedUser, draftUser) {
+  return (
+    getAdminEditableUsername(savedUser) !== getAdminEditableUsername(draftUser) ||
+    String(savedUser.email || "").trim() !== String(draftUser.email || "").trim() ||
+    savedUser.role !== draftUser.role
+  );
+}
+
+async function saveAdminUserEdits() {
+  const validationError = validateDraftAdminUsers();
+
+  if (validationError) {
+    renderAdminUsers();
+    showAppToast(validationError, "error", null, "");
+    return false;
+  }
+
+  const savedById = new Map(adminUsers.map(user => [Number(user.id), user]));
+  const changedUsers = draftAdminUsers.map((user, index) => ({ user, index })).filter(({ user }) => {
+    const savedUser = savedById.get(Number(user.id));
+    return savedUser && isAdminUserDifferent(savedUser, user);
+  });
+
+  for (const { user, index } of changedUsers) {
+    let savedUser;
+
+    try {
+      const username = getAdminEditableUsername(user);
+
+      savedUser = await fetchAdminJson(`/admin/users/${user.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: username,
+          username,
+          email: String(user.email || "").trim(),
+          role: user.role
+        })
+      });
+    } catch (error) {
+      const message = String(error.message || "");
+
+      if (/email/i.test(message)) {
+        adminUserInvalidCells[`${index}:email`] = true;
+      }
+
+      if (/username|user name|user|name/i.test(message) && !/email/i.test(message)) {
+        adminUserInvalidCells[`${index}:username`] = true;
+      }
+
+      if (/role/i.test(message)) {
+        adminUserInvalidCells[`${index}:role`] = true;
+      }
+
+      renderAdminUsers();
+      throw error;
+    }
+
+    if (Number(savedUser.id) === Number(currentUser?.id)) {
+      currentUser = {
+        ...currentUser,
+        ...savedUser,
+        displayName: capitalizeFirstLetter(getAdminUsername(savedUser) || currentUser.displayName)
+      };
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+    }
+  }
+
+  await loadAdminProfileData();
+  adminUserInvalidCells = {};
+
+  if (!isAdminUser()) {
+    isAdminPanelOpen = false;
+    renderAuthState();
+  }
+
+  return true;
+}
+
+async function handleAdminEditUsersClick() {
+  if (!isAdminEditMode) {
+    isAdminEditMode = true;
+    selectedAdminUserIndex = null;
+    draftAdminUsers = adminUsers.map(user => ({ ...user }));
+    adminUserInvalidCells = {};
+    updateAdminEditButtons();
+    renderAdminUsers();
+    return;
+  }
+
+  try {
+    commitAdminEditableCell(document.activeElement?.closest?.("[data-admin-field]"));
+    const saved = await saveAdminUserEdits();
+    if (!saved) return;
+
+    isAdminEditMode = false;
+    selectedAdminUserIndex = null;
+    updateAdminEditButtons();
+    renderAdminUsers();
+    showAppToast("User changes saved successfully.", "success");
+  } catch (error) {
+    console.error("Failed to save users:", error);
+    showAppToast(error.message || "Could not save user changes.", "error", null, "");
+  }
+}
+
+function cancelAdminUserEdits() {
+  if (!isAdminEditMode) return;
+
+  isAdminEditMode = false;
+  selectedAdminUserIndex = null;
+  draftAdminUsers = adminUsers.map(user => ({ ...user }));
+  adminUserInvalidCells = {};
+  updateAdminEditButtons();
+  renderAdminUsers();
+}
+
+function handleAdminPanelChange(event) {
+  // Backward compatibility for older native-select role cells.
+  const roleSelect = event.target.closest('select[data-admin-field="role"]');
+
+  if (!roleSelect) return;
+
+  const index = Number(roleSelect.dataset.adminIndex);
+
+  if (Number.isInteger(index)) {
+    updateDraftAdminUser(index, "role", roleSelect.value);
+  }
+}
+
+function handleAdminUserSearchInput(event) {
+  adminUserSearch = event.target.value || "";
+  adminUsersPage = 1;
+  renderAdminUsers();
+}
+
+async function handleAdminPanelClick(event) {
+  const roleTrigger = event.target.closest(".admin-role-trigger");
+
+  if (roleTrigger) {
+    const roleCell = roleTrigger.closest(".admin-role-cell");
+    const roleMenu = roleTrigger.closest(".admin-role-menu");
+
+    if (!isAdminEditMode || roleCell?.classList.contains("locked")) {
+      event.preventDefault();
+      if (roleMenu) roleMenu.open = false;
+      return;
+    }
+
+    closeAdminRoleMenus(roleMenu);
+    return;
+  }
+
+  const roleOption = event.target.closest(".admin-role-option");
+
+  if (roleOption) {
+    event.preventDefault();
+
+    const index = Number(roleOption.dataset.adminIndex);
+    const value = roleOption.dataset.adminRoleValue || "user";
+
+    if (Number.isInteger(index)) {
+      updateDraftAdminUser(index, "role", value);
+    }
+
+    const roleMenu = roleOption.closest(".admin-role-menu");
+    if (roleMenu) roleMenu.open = false;
+
+    renderAdminUsers();
+    return;
+  }
+
+  const adminPrevPageBtn = event.target.closest("#admin-users-prev-page-btn");
+
+  if (adminPrevPageBtn) {
+    if (adminUsersPage > 1) {
+      adminUsersPage--;
+      renderAdminUsers();
+    }
+    return;
+  }
+
+  const adminNextPageBtn = event.target.closest("#admin-users-next-page-btn");
+
+  if (adminNextPageBtn) {
+    adminUsersPage++;
+    renderAdminUsers();
+    return;
+  }
+
+  const roleFilterOption = event.target.closest(".admin-role-filter-option");
+
+  if (roleFilterOption) {
+    adminRoleFilter = roleFilterOption.dataset.adminRoleFilter || "All";
+    adminUsersPage = 1;
+    document.getElementById("admin-role-filter-menu").open = false;
+    renderAdminUsers();
+    return;
+  }
+
+  const sortOption = event.target.closest(".admin-user-sort-option");
+
+  if (sortOption) {
+    adminUserSort = sortOption.dataset.adminUserSort || "username-asc";
+    adminUsersPage = 1;
+    document.getElementById("admin-user-sort-menu").open = false;
+    renderAdminUsers();
+    return;
+  }
+
+  const adminClearBtn = event.target.closest("#admin-users-clear-btn");
+
+  if (adminClearBtn) {
+    adminUserSearch = "";
+    adminRoleFilter = "All";
+    adminUserSort = "username-asc";
+    adminUsersPage = 1;
+
+    const roleMenu = document.getElementById("admin-role-filter-menu");
+    const sortMenu = document.getElementById("admin-user-sort-menu");
+
+    if (roleMenu) roleMenu.open = false;
+    if (sortMenu) sortMenu.open = false;
+
+    renderAdminUsers();
+    return;
+  }
+
+  const actionButton = event.target.closest("[data-admin-action]");
+
+  if (!actionButton) return;
+
+  const userIndex = Number(actionButton.dataset.adminIndex);
+  const user = (isAdminEditMode ? draftAdminUsers : adminUsers)[userIndex];
+
+  if (!user) return;
+
+  if (actionButton.dataset.adminAction === "edit-user") {
+    startAdminRowEdit(userIndex);
+    return;
+  }
+
+  if (actionButton.dataset.adminAction === "delete-user") {
+    if (Number(user.id) === Number(currentUser?.id)) return;
+
+    const confirmed = await showDeleteUserDialog(user);
+
+    if (!confirmed) return;
+
+    try {
+      await fetchAdminJson(`/admin/users/${user.id}`, { method: "DELETE" });
+      isAdminEditMode = false;
+      selectedAdminUserIndex = null;
+      updateAdminEditButtons();
+      await loadAdminProfileData();
+      showAppToast("User deleted successfully.", "success");
+    } catch (error) {
+      console.error("Failed to delete user:", error);
+      showAppToast(error.message || "Could not delete user.", "error", null, "");
+    }
+  }
+}
+
+async function handleUserProfileClick(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (!isAdminUser()) return;
+
+  if (!(await confirmDiscardUnsavedChanges())) return;
+
+  discardUnsavedEditableTableChanges();
+
+  isAdminPanelOpen = !isAdminPanelOpen;
+  renderAdminPanelState();
+  renderPageSections();
+  closeProfileMenu();
+
+  if (isAdminPanelOpen) {
+    isAdminEditMode = false;
+    selectedAdminUserIndex = null;
+    adminUsersPage = 1;
+    await loadAdminProfileData();
+    document.getElementById("admin-profile-panel")?.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }
 }
 
 async function handleLoginSubmit(event) {
@@ -3841,19 +5466,21 @@ async function handleLoginSubmit(event) {
 
 function renderAuthState() {
   ensureLoginPanel();
+  ensureAdminProfileControls();
+  renderAdminPanelState();
+  renderPageSections();
 
   const profile = document.querySelector(".profile");
   const dropdown = document.querySelector(".dropdown");
   const username = document.querySelector(".username");
   const arrow = document.querySelector(".arrow");
-  const profilePic = document.querySelector(".profile-pic");
 
   if (!profile || !usernameWrapper) return;
 
   updateGreetingText();
 
   if (loginPanel) {
-    loginPanel.hidden = isLoggedIn;
+    loginPanel.hidden = true;
   }
 
   profile.hidden = !isLoggedIn;
@@ -3871,7 +5498,6 @@ function renderAuthState() {
     if (username) username.textContent = getCurrentDisplayName();
     if (arrow) arrow.hidden = false;
     if (dropdown) dropdown.hidden = false;
-    if (profilePic) profilePic.hidden = false;
 
     return;
   }
@@ -3880,10 +5506,29 @@ function renderAuthState() {
   profile.classList.add("logged-out");
 }
 
-function logout(event) {
+async function logout(event) {
   if (event) {
     event.preventDefault();
     event.stopPropagation();
+  }
+
+  if (!(await confirmDiscardUnsavedChanges())) return;
+
+  discardUnsavedEditableTableChanges();
+
+  const tokenForLogout = authToken;
+
+  if (tokenForLogout) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenForLogout}`
+        }
+      });
+    } catch (error) {
+      console.error("Logout activity could not be recorded:", error);
+    }
   }
 
   clearSessionData();
@@ -4321,6 +5966,41 @@ function handleMaskedCellKeydown(event) {
 }
 
 function handleTableClick(event) {
+  const categoryTrigger = event.target.closest(".expense-category-trigger");
+
+  if (categoryTrigger) {
+    const categoryCell = categoryTrigger.closest(".category-cell");
+    const categoryMenu = categoryTrigger.closest(".expense-category-menu");
+
+    if (!isEditMode || categoryCell?.classList.contains("locked")) {
+      event.preventDefault();
+      if (categoryMenu) categoryMenu.open = false;
+      return;
+    }
+
+    closeExpenseCategoryMenus(categoryMenu);
+    return;
+  }
+
+  const categoryOption = event.target.closest(".expense-category-option");
+
+  if (categoryOption) {
+    event.preventDefault();
+
+    const index = Number(categoryOption.dataset.index);
+    const value = categoryOption.dataset.expenseCategoryValue || "";
+
+    if (Number.isInteger(index)) {
+      updateExpense(index, "category", value);
+    }
+
+    const categoryMenu = categoryOption.closest(".expense-category-menu");
+    if (categoryMenu) categoryMenu.open = false;
+
+    renderExpenses();
+    return;
+  }
+
   if (isEditMode) {
     const clickedCell = event.target.closest("td[data-field]");
     if (clickedCell && !clickedCell.classList.contains("locked")) {
@@ -4355,6 +6035,10 @@ function bindEvents() {
 
   [loginIdentifierInput, loginPasswordInput].forEach(input => {
     input?.addEventListener("input", clearLoginErrors);
+  });
+
+  ["username", "email", "password"].forEach(field => {
+    document.getElementById(`register-${field}`)?.addEventListener("input", clearRegisterErrors);
   });
 
   addBtn.addEventListener("click", addExpense);
@@ -4715,11 +6399,14 @@ function bindEvents() {
   }, true);
 
   document.addEventListener("click", (event) => {
-    const clickedInsideMenu = event.target.closest(".toolbar-menu, .date-picker, .dropdown, .username-wrapper");
-    if (!clickedInsideMenu) {
-      closeToolbarMenus();
-      closeProfileMenu();
-    }
+    const clickedInsideDropdown = event.target.closest(".toolbar-menu");
+    const openDropdowns = document.querySelectorAll(".toolbar-menu[open]");
+  
+    openDropdowns.forEach((dropdown) => {
+      if (dropdown !== clickedInsideDropdown) {
+        dropdown.open = false; // Close dropdown if the click was outside
+      }
+    });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -4788,7 +6475,7 @@ function bindEvents() {
   }
 
   if (brandHome) {
-    brandHome.addEventListener("click", resetDashboardView);
+    brandHome.addEventListener("click", guardedResetDashboardView);
   }
 
   if (usernameWrapper) {
@@ -4858,6 +6545,23 @@ function bindEvents() {
   // Active table-cell styling is cleared by the pointerdown-outside handler.
   // Avoid clearing it on focusout because focus timing can remove the border
   // from a cell that the user is trying to reselect.
+
+  document.addEventListener("click", event => {
+    if (!event.target.closest?.(".admin-role-menu")) {
+      closeAdminRoleMenus();
+    }
+
+    if (!event.target.closest?.(".expense-category-menu")) {
+      closeExpenseCategoryMenus();
+    }
+  });
+
+  window.addEventListener("beforeunload", event => {
+    if (!hasOpenEditableTableSession({ commitActive: false })) return;
+
+    event.preventDefault();
+    event.returnValue = "";
+  });
 
   window.addEventListener("scroll", handleHeaderFade);
   window.addEventListener("resize", () => {

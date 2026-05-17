@@ -23,9 +23,7 @@
     </div>
 
     <div class="header-right">
-      <div class="profile">
-        <img class="profile-pic" src="https://www.gravatar.com/avatar/?d=mp" alt="Default profile avatar">
-
+      <div class="profile" hidden>
         <div class="profile-info">
           <div
             class="username-wrapper"
@@ -49,7 +47,7 @@
   <main>
     <div id="app-status" class="status-message" role="alert" aria-live="assertive" hidden></div>
 
-    <section class="add expense-hero">
+    <section class="add expense-hero" hidden>
       <div class="hero-copy">
         <h2>Hi Marsi, ready to track today’s spending?</h2>
         <p class="hero-subtext">
@@ -167,7 +165,7 @@
       </div>
     </section>
 
-    <div id="expense-history" class="table-section">
+    <div id="expense-history" class="table-section" hidden>
       <div class="table-header">
         <div class="table-title-group">
           <div>
@@ -198,6 +196,7 @@
                 </svg>
               </span>
               <span id="filter-menu-label">Filter: All</span>
+              <span class="toolbar-chevron" aria-hidden="true">›</span>
             </summary>
 
             <div class="toolbar-menu-panel filter-menu-panel">
@@ -325,7 +324,7 @@
       </div>
     </div>
 
-    <section id="monthly-trends" class="trend-section">
+    <section id="monthly-trends" class="trend-section" hidden>
       <div class="trend-inner">
         <div class="chart-container">
           <div class="trend-header">
