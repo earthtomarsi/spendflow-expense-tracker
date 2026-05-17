@@ -17,6 +17,7 @@ let currentMonthFilter = "All";
 let currentSearch = "";
 let pendingSearch = "";
 let currentPage = 1;
+let monthMenuYear = new Date().getFullYear();
 const rowsPerPage = 10;
 const DESCRIPTION_LIMIT = 70;
 const MAX_VALID_YEAR = new Date().getFullYear();
@@ -589,14 +590,19 @@ function buildMonthMenuOptions() {
   const today = getTodayLocalDate();
   const currentYear = Number(today.slice(0, 4));
   const currentMonth = today.slice(0, 7);
+  const visibleYear = monthMenuYear || currentYear;
   const months = Array.from({ length: 12 }, (_, index) => {
-    const value = `${currentYear}-${String(index + 1).padStart(2, "0")}`;
-    const label = new Date(currentYear, index, 1).toLocaleString("en-US", { month: "short" });
+    const value = `${visibleYear}-${String(index + 1).padStart(2, "0")}`;
+    const label = new Date(visibleYear, index, 1).toLocaleString("en-US", { month: "short" });
     return { value, label };
   });
 
   monthMenuPanel.innerHTML = `
-    <p class="month-menu-title">${currentYear}</p>
+    <div class="month-menu-year-nav">
+      <button class="month-year-btn" data-month-year-direction="-1" type="button" aria-label="Previous year">‹</button>
+      <p class="month-menu-title">${visibleYear}</p>
+      <button class="month-year-btn" data-month-year-direction="1" type="button" aria-label="Next year" ${visibleYear >= currentYear ? "disabled" : ""}>›</button>
+    </div>
     <button class="month-option month-option-wide" data-month-value="${currentMonth}" type="button">This month</button>
     <div class="month-options-grid">
       ${months.map(month => `
@@ -620,6 +626,10 @@ function syncMonthMenuState() {
 
 function setMonthFilterValue(value) {
   if (!monthFilterInput) return;
+
+  if (/^\d{4}-\d{2}$/.test(value)) {
+    monthMenuYear = Number(value.slice(0, 4));
+  }
 
   monthFilterInput.value = value;
   monthFilterInput.dispatchEvent(new Event("change", { bubbles: true }));
@@ -4488,6 +4498,24 @@ function bindEvents() {
 
   if (monthMenuPanel) {
     monthMenuPanel.addEventListener("click", (event) => {
+      const yearButton = event.target.closest(".month-year-btn");
+      if (yearButton) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const direction = Number(yearButton.dataset.monthYearDirection);
+        const today = getTodayLocalDate();
+        const currentYear = Number(today.slice(0, 4));
+        const nextYear = monthMenuYear + direction;
+
+        if (!Number.isFinite(direction) || nextYear > currentYear) return;
+
+        monthMenuYear = nextYear;
+        buildMonthMenuOptions();
+        if (monthMenu) monthMenu.open = true;
+        return;
+      }
+
       const option = event.target.closest(".month-option");
       if (!option) return;
       setMonthFilterValue(option.dataset.monthValue || "");
