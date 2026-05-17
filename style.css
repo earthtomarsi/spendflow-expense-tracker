@@ -467,7 +467,7 @@ color: currentColor;
 opacity: 0.78;
 font-size: 20px;
 line-height: 1;
-font-weight: 300;
+font-weight: 400;
 display: inline-flex;
 align-items: center;
 justify-content: center;
@@ -829,6 +829,13 @@ pointer-events: none;
 }
 
 #page-indicator {
+color: var(--text-main);
+font-size: 12px;
+text-align: center;
+white-space: nowrap;
+}
+
+#admin-users-page-indicator {
 color: var(--text-main);
 font-size: 12px;
 text-align: center;
@@ -3008,7 +3015,7 @@ transform: translate(0.5px, -0.5px);
 padding-bottom: 2px !important;
 font-size: 22px !important;
 line-height: 1 !important;
-font-weight: 300;
+font-weight: 400;
 }
 
 .row-icon-btn:hover {
