@@ -2,7 +2,7 @@ let expenses = [];
 let draftExpenses = [];
 
 const API_BASE = "http://localhost:3000";
-const AUTH_TOKEN = "PASTE_YOUR_CURRENT_JWT_TOKEN_HERE";
+const AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiZW1haWwiOiJtYXJzaTJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTAwMjg4NCwiZXhwIjoxNzc5MDEwMDg0fQ.2VXcOe1KSa0j0SiTP5SB7Rk-QEvmkgJ058A4z0a01vY";
 
 let categoryChart = null;
 let pieChart = null;
@@ -14,12 +14,15 @@ let pendingSearch = "";
 let currentPage = 1;
 const rowsPerPage = 10;
 const DESCRIPTION_LIMIT = 70;
+const MAX_VALID_YEAR = new Date().getFullYear();
 let isEditMode = false;
 let newlyAddedExpenseId = null;
 let highlightTimeoutId = null;
 let appToastTimeoutId = null;
 let tableActionHighlightTimeoutId = null;
 let activeEditCell = null;
+let selectedEditRowIndex = null;
+let editModeOrderIds = [];
 let isLoggedIn = true;
 
 // DOM elements
@@ -53,6 +56,7 @@ const logoutBtn = document.getElementById("logout-btn");
 const trendSection = document.querySelector(".trend-section");
 const tableSection = document.querySelector(".table-section");
 const filterMenu = document.getElementById("filter-menu");
+const filterMenuLabel = document.getElementById("filter-menu-label");
 const sortMenu = document.getElementById("sort-menu");
 const sortMenuLabel = document.getElementById("sort-menu-label");
 const monthMenu = document.getElementById("month-menu");
@@ -87,7 +91,6 @@ function ensureTypedDateInput() {
 
   if (!fieldGroup) return;
 
-  // Keep #date as the hidden ISO field used by validation and the backend.
   dateInput.type = "hidden";
 
   let shell = fieldGroup.querySelector(".date-input-shell");
@@ -107,21 +110,69 @@ function ensureTypedDateInput() {
   if (!dateManualInput) {
     dateManualInput = document.createElement("input");
     dateManualInput.id = "date-manual";
-    dateManualInput.className = "date-manual-input";
-    dateManualInput.type = "text";
-    dateManualInput.inputMode = "numeric";
-    dateManualInput.autocomplete = "off";
-    dateManualInput.placeholder = "MM/DD/YYYY";
-    dateManualInput.setAttribute("aria-describedby", "date-helper date-error");
   }
 
+  dateManualInput.type = "hidden";
+  dateManualInput.className = "date-manual-input";
+  dateManualInput.setAttribute("aria-hidden", "true");
+  dateManualInput.tabIndex = -1;
+
   if (dateManualInput.parentElement !== shell) {
-    shell.insertBefore(dateManualInput, shell.firstChild);
+    shell.appendChild(dateManualInput);
+  }
+
+  let segmentedInput = shell.querySelector("#date-segmented-input");
+
+  if (!segmentedInput) {
+    segmentedInput = document.createElement("div");
+    segmentedInput.id = "date-segmented-input";
+    segmentedInput.className = "add-date-segmented-input";
+    segmentedInput.setAttribute("role", "group");
+    segmentedInput.setAttribute("aria-label", "Expense date");
+
+    segmentedInput.innerHTML = `
+      <input
+        class="add-date-segment add-date-month"
+        data-add-date-segment="month"
+        type="text"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="2"
+        placeholder="MM"
+        aria-label="Month"
+      >
+      <span class="add-date-separator" aria-hidden="true">/</span>
+      <input
+        class="add-date-segment add-date-day"
+        data-add-date-segment="day"
+        type="text"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="2"
+        placeholder="DD"
+        aria-label="Day"
+      >
+      <span class="add-date-separator" aria-hidden="true">/</span>
+      <input
+        class="add-date-segment add-date-year"
+        data-add-date-segment="year"
+        type="text"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="4"
+        placeholder="YYYY"
+        aria-label="Year"
+      >
+    `;
+
+    shell.insertBefore(segmentedInput, dateManualInput);
   }
 
   if (datePicker && datePicker.parentElement !== shell) {
     shell.appendChild(datePicker);
   }
+
+  bindAddExpenseSegmentedDateEvents();
 }
 
 /**
@@ -234,8 +285,12 @@ function setAddExpenseCategoryValue(value) {
   }
 }
 
-ensureTypedDateInput();
-ensureAddExpenseCategoryMenu();
+if (amountInput) {
+  amountInput.type = "text";
+  amountInput.inputMode = "decimal";
+  amountInput.autocomplete = "off";
+  amountInput.placeholder = "$0.00";
+}
 
 // ---------- Helpers ----------
 function cloneExpenses(expenseList) {
@@ -288,7 +343,10 @@ function normalizeExpense(expense = {}) {
       expense.expenseDescription ??
       expense.notes ??
       "",
-    dateError: expense.dateError ?? ""
+    dateError: expense.dateError ?? "",
+    amountError: expense.amountError ?? "",
+    dateEditValue: expense.dateEditValue ?? "",
+    amountEditValue: expense.amountEditValue ?? ""
   };
 }
 
@@ -449,8 +507,21 @@ function externalPieTooltip(context) {
   const directionY = Math.sin(angle);
   const canvasRect = chart.canvas.getBoundingClientRect();
 
-  const tooltipX = canvasRect.left + window.scrollX + arc.x + directionX * (arc.outerRadius + 22);
-  const tooltipY = canvasRect.top + window.scrollY + arc.y + directionY * Math.min(arc.outerRadius * 0.42, 46);
+  // Anchor the tooltip pointer to the actual outer edge of the hovered slice.
+  // Using the full Y radius keeps smaller upper/lower slices like Leisure,
+  // Shopping, and Transport aligned with their visible arc instead of drifting
+  // toward the doughnut centre.
+  const pointerGap = label === "Leisure" ? 20 : 14;
+  const tooltipAnchorX = canvasRect.left + window.scrollX + arc.x + directionX * (arc.outerRadius + 8);
+  const tooltipAnchorY = canvasRect.top + window.scrollY + arc.y + directionY * (arc.outerRadius + 8);
+  const tooltipX = tooltipAnchorX + (directionX >= 0 ? -pointerGap : pointerGap);
+  const tooltipVerticalOffset =
+    label === "Transport" ? 18 :
+    label === "Shopping" ? 26 :
+    label === "Bills" ? -8 :
+    label === "Leisure" ? -22 :
+    0;
+  const tooltipY = tooltipAnchorY + tooltipVerticalOffset;
 
   tooltipEl.style.transition = "opacity 0.32s ease, transform 0.32s ease, left 0.32s ease, top 0.32s ease";
 
@@ -471,6 +542,18 @@ function externalPieTooltip(context) {
   tooltipEl.classList.toggle("is-right", directionX >= 0);
   tooltipEl.classList.toggle("is-left", directionX < 0);
   tooltipEl.classList.add("is-visible");
+}
+
+function syncFilterMenuState() {
+  const filterValue = currentFilter || "All";
+
+  if (filterMenuLabel) {
+    filterMenuLabel.textContent = `Filter: ${filterValue}`;
+  }
+
+  document.querySelectorAll(".filter-btn").forEach(option => {
+    option.classList.toggle("active", option.dataset.category === filterValue);
+  });
 }
 
 function syncSortMenuState() {
@@ -564,48 +647,118 @@ function parseTypedDateToIso(value) {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function validateTypedDateInput(value) {
+  const raw = String(value || "").trim();
+
+  if (!raw) {
+    return {
+      isValid: false,
+      error: "Please enter or select a date",
+      isoDate: ""
+    };
+  }
+
+  if (/[^0-9\/-]/.test(raw)) {
+    return {
+      isValid: false,
+      error: "Please use numbers only for the date",
+      isoDate: ""
+    };
+  }
+
+  const isoDate = parseTypedDateToIso(raw);
+
+  if (!isoDate) {
+    return {
+      isValid: false,
+      error: "Please use a valid date",
+      isoDate: ""
+    };
+  }
+
+  const year = Number(isoDate.slice(0, 4));
+
+  if (year > MAX_VALID_YEAR) {
+    return {
+      isValid: false,
+      error: `Year cannot be after ${MAX_VALID_YEAR}`,
+      isoDate
+    };
+  }
+
+  if (!isValidDate(isoDate, { allowFuture: true })) {
+    return {
+      isValid: false,
+      error: "Please use a valid date",
+      isoDate
+    };
+  }
+
+  if (isoDate > getTodayLocalDate()) {
+    return {
+      isValid: false,
+      error: "Date cannot be after today",
+      isoDate
+    };
+  }
+
+  return {
+    isValid: true,
+    error: "",
+    isoDate
+  };
+}
+
 /**
  * Syncs the visible typed date input into the hidden ISO #date input.
  * This keeps the backend payload unchanged while allowing users to type dates.
  */
 function syncTypedDateToHidden(showError = false) {
-  if (!dateManualInput || !dateInput) return true;
+  if (!dateInput) return true;
 
-  const typedValue = dateManualInput.value.trim();
-  const isoValue = parseTypedDateToIso(typedValue);
+  const { root } = getAddExpenseDateSegments();
+  const typedValue = root
+    ? getAddExpenseDateDisplayValue()
+    : dateManualInput?.value.trim() || "";
 
-  dateManualInput.classList.remove("error");
+  const dateValidation = validateTypedDateInput(typedValue);
+
+  root?.classList.remove("error");
+  dateManualInput?.classList.remove("error");
   dateInput.classList.remove("error");
+
   if (dateError) dateError.textContent = "";
 
-  if (!typedValue) {
+  if (!dateValidation.isValid) {
     dateInput.value = "";
     dateInput.classList.remove("has-value");
 
     if (showError) {
-      dateError.textContent = "Please enter or select a date";
-      dateManualInput.classList.add("error");
-      dateInput.classList.add("error");
-    }
+      if (dateError) dateError.textContent = dateValidation.error;
 
-    syncExpenseDateControl();
-    return !showError;
-  }
-
-  if (!isoValue || !isValidDate(isoValue)) {
-    if (showError) {
-      dateError.textContent = "Use a valid date in MM/DD/YYYY or YYYY-MM-DD";
-      dateManualInput.classList.add("error");
+      root?.classList.add("error");
+      dateManualInput?.classList.add("error");
       dateInput.classList.add("error");
+
+      resetAddExpenseDateSegmentsToPlaceholders();
     }
 
     syncExpenseDateControl();
     return false;
   }
 
-  dateInput.value = isoValue;
+  dateInput.value = dateValidation.isoDate;
   dateInput.classList.add("has-value");
-  datePickerViewDate = getDateFromInputValue(isoValue);
+
+  if (dateManualInput) {
+    dateManualInput.value = formatDateDisplay(dateValidation.isoDate);
+  }
+
+  datePickerViewDate = getDateFromInputValue(dateValidation.isoDate);
+
+  if (root && !root.contains(document.activeElement)) {
+    setAddExpenseDateSegmentsFromIsoOrDisplay(dateValidation.isoDate);
+  }
 
   syncExpenseDateControl();
   renderExpenseDatePicker();
@@ -617,8 +770,15 @@ function syncExpenseDateControl() {
 
   const value = dateInput?.value || "";
   const displayValue = value ? formatDateDisplay(value) : "";
+  const { root } = getAddExpenseDateSegments();
 
-  if (dateManualInput && document.activeElement !== dateManualInput) {
+  if (dateManualInput) {
+    dateManualInput.value = displayValue;
+  }
+
+  if (root && !root.contains(document.activeElement)) {
+    setAddExpenseDateSegmentsFromIsoOrDisplay(value);
+  } else if (dateManualInput && document.activeElement !== dateManualInput && !root) {
     dateManualInput.value = displayValue;
   }
 
@@ -632,6 +792,11 @@ function syncExpenseDateControl() {
   if (dateManualInput) {
     dateManualInput.classList.toggle("has-value", Boolean(value));
     dateManualInput.classList.toggle("error", Boolean(dateInput?.classList.contains("error")));
+  }
+
+  if (root) {
+    root.classList.toggle("has-value", Boolean(value));
+    root.classList.toggle("error", Boolean(dateInput?.classList.contains("error")));
   }
 }
 
@@ -695,7 +860,16 @@ function setExpenseDateValue(value) {
     dateManualInput.classList.remove("error");
   }
 
+  const { root } = getAddExpenseDateSegments();
+
+  if (root) {
+    setAddExpenseDateSegmentsFromIsoOrDisplay(value);
+    root.classList.toggle("has-value", Boolean(value));
+    root.classList.remove("error");
+  }
+
   if (dateError) dateError.textContent = "";
+
   dateInput.dispatchEvent(new Event("input", { bubbles: true }));
   syncExpenseDateControl();
   renderExpenseDatePicker();
@@ -885,14 +1059,20 @@ function showAppToast(message, type = "success", action = null, title = null) {
   }
 
   if (iconEl) {
-    iconEl.innerHTML = "";
-
-    const iconSymbol = document.createElement("span");
-    iconSymbol.className = "toast-icon-symbol";
-    iconSymbol.textContent = type === "error" ? "!" : "✓";
-    iconSymbol.setAttribute("aria-hidden", "true");
-
-    iconEl.appendChild(iconSymbol);
+    iconEl.innerHTML = type === "error"
+      ? `
+        <svg class="toast-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M12 7.5v5.2"></path>
+          <path d="M12 16.5h.01"></path>
+        </svg>
+      `
+      : `
+        <svg class="toast-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"></circle>
+          <path d="M8.5 12.3l2.3 2.3 4.7-5.2"></path>
+        </svg>
+      `;
 
     iconEl.setAttribute(
       "aria-label",
@@ -986,6 +1166,39 @@ function toggleTrendSection(show) {
   trendSection.style.display = show ? "block" : "none";
 }
 
+
+function getExpenseOrderKey(expense) {
+  return expense?.id != null ? `id:${expense.id}` : `name:${expense?.expenseName || ""}|date:${expense?.date || ""}`;
+}
+
+function captureEditModeOrder() {
+  // Capture the table order exactly as the user sees it before entering edit mode.
+  // This prevents rows from moving while draft amount/date values are being edited.
+  editModeOrderIds = getFilteredExpenses(expenses, true).map(getExpenseOrderKey);
+}
+
+function clearEditModeOrder() {
+  editModeOrderIds = [];
+}
+
+function applyFrozenEditOrder(filtered) {
+  if (!isEditMode || editModeOrderIds.length === 0) return filtered;
+
+  const orderMap = new Map(editModeOrderIds.map((key, index) => [key, index]));
+  const fallbackStart = editModeOrderIds.length + 1;
+
+  return filtered.sort((a, b) => {
+    const orderA = orderMap.has(getExpenseOrderKey(a))
+      ? orderMap.get(getExpenseOrderKey(a))
+      : fallbackStart;
+    const orderB = orderMap.has(getExpenseOrderKey(b))
+      ? orderMap.get(getExpenseOrderKey(b))
+      : fallbackStart;
+
+    return orderA - orderB;
+  });
+}
+
 function getFilteredExpenses(sourceExpenses, includeSearch = true) {
   let filtered = [...sourceExpenses];
 
@@ -1001,6 +1214,10 @@ function getFilteredExpenses(sourceExpenses, includeSearch = true) {
     filtered = filtered.filter(exp =>
       String(exp.expenseName || "").toLowerCase().includes(currentSearch)
     );
+  }
+
+  if (isEditMode && editModeOrderIds.length > 0) {
+    return applyFrozenEditOrder(filtered);
   }
 
   filtered.sort((a, b) => {
@@ -1066,27 +1283,63 @@ function syncMonthFilterState() {
   syncMonthMenuState();
 }
 
-function hasInvalidLeadingZero(value) {
-  return /^0\d/.test(value.trim());
+function parseCurrencyInput(value) {
+  return String(value ?? "")
+    .replace(/[$,\s]/g, "")
+    .trim();
 }
 
-function isValidDate(value) {
+function getCurrencyNumber(value) {
+  const cleanedValue = parseCurrencyInput(value);
+
+  if (cleanedValue === "") return null;
+
+  return Number(cleanedValue);
+}
+
+function formatAmountInputValue() {
+  if (!amountInput) return;
+
+  const amount = getCurrencyNumber(amountInput.value);
+
+  if (amount === null || !Number.isFinite(amount)) return;
+
+  amountInput.value = formatCurrency(amount);
+}
+
+function resetAmountInputToRawValue() {
+  if (!amountInput) return;
+
+  amountInput.value = parseCurrencyInput(amountInput.value);
+}
+
+function hasInvalidLeadingZero(value) {
+  const normalizedValue = parseCurrencyInput(value);
+
+  return /^0\d/.test(normalizedValue);
+}
+
+function isValidDate(value, options = {}) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
+  const { allowFuture = true } = options;
   const [year, month, day] = value.split("-").map(Number);
-  const today = getTodayLocalDate();
 
+  if (year > MAX_VALID_YEAR) return false;
   if (month < 1 || month > 12) return false;
   if (day < 1 || day > 31) return false;
-  if (value > today) return false;
 
   const date = new Date(`${value}T00:00:00`);
-
-  return (
+  const isRealCalendarDate =
     date.getFullYear() === year &&
     date.getMonth() + 1 === month &&
-    date.getDate() === day
-  );
+    date.getDate() === day;
+
+  if (!isRealCalendarDate) return false;
+
+  if (!allowFuture && value > getTodayLocalDate()) return false;
+
+  return true;
 }
 
 function setTodayDate() {
@@ -1142,6 +1395,880 @@ function formatCurrency(amount) {
   });
 }
 
+function formatAmountDisplay(value) {
+  const amount = getCurrencyNumber(value);
+
+  if (amount === null || !Number.isFinite(amount)) {
+    return String(value ?? "");
+  }
+
+  return formatCurrency(amount);
+}
+
+function getAmountEditDisplay(value) {
+  const rawValue = String(value ?? "").replace(/\n/g, "").trim();
+  const withoutCurrencySymbol = rawValue.replace(/\$/g, "").trim();
+
+  return `$${withoutCurrencySymbol}`;
+}
+
+function getDateEditDisplay(value) {
+  const rawValue = String(value ?? "").replace(/\n/g, "").trim();
+  const digitsOnly = rawValue.replace(/\D/g, "").slice(0, 8);
+
+  if (digitsOnly.length > 4) {
+    return `${digitsOnly.slice(0, 2)}/${digitsOnly.slice(2, 4)}/${digitsOnly.slice(4)}`;
+  }
+
+  if (digitsOnly.length > 2) {
+    return `${digitsOnly.slice(0, 2)}/${digitsOnly.slice(2)}`;
+  }
+
+  return digitsOnly;
+}
+
+const DATE_SEGMENT_PLACEHOLDERS = {
+  month: "MM",
+  day: "DD",
+  year: "YYYY"
+};
+
+let addExpenseDateSegmentsBound = false;
+
+function getAddExpenseDateSegments() {
+  const root = document.getElementById("date-segmented-input");
+
+  return {
+    root,
+    month: root?.querySelector('[data-add-date-segment="month"]') || null,
+    day: root?.querySelector('[data-add-date-segment="day"]') || null,
+    year: root?.querySelector('[data-add-date-segment="year"]') || null
+  };
+}
+
+function getAddDateSegmentMaxLength(segment) {
+  return segment === "year" ? 4 : 2;
+}
+
+function getCleanAddDateSegmentValue(inputOrValue, segment = "") {
+  const rawValue = typeof inputOrValue === "string"
+    ? inputOrValue
+    : inputOrValue?.value ?? "";
+
+  return String(rawValue)
+    .replace(/\D/g, "")
+    .slice(0, getAddDateSegmentMaxLength(segment));
+}
+
+function updateAddDateSegmentState(input) {
+  if (!input) return;
+
+  const segment = input.dataset.addDateSegment || "";
+  const cleanValue = getCleanAddDateSegmentValue(input, segment);
+
+  input.value = cleanValue;
+  input.classList.toggle("is-placeholder", cleanValue === "");
+}
+
+function updateAddExpenseDateSegmentStates() {
+  const { month, day, year } = getAddExpenseDateSegments();
+
+  [month, day, year].forEach(updateAddDateSegmentState);
+}
+
+function hasAnyAddExpenseDateSegmentValue() {
+  const { month, day, year } = getAddExpenseDateSegments();
+
+  return Boolean(
+    getCleanAddDateSegmentValue(month, "month") ||
+    getCleanAddDateSegmentValue(day, "day") ||
+    getCleanAddDateSegmentValue(year, "year")
+  );
+}
+
+function getAddExpenseDateDisplayValue() {
+  const { month, day, year } = getAddExpenseDateSegments();
+
+  const monthValue = getCleanAddDateSegmentValue(month, "month");
+  const dayValue = getCleanAddDateSegmentValue(day, "day");
+  const yearValue = getCleanAddDateSegmentValue(year, "year");
+
+  if (!monthValue && !dayValue && !yearValue) return "";
+
+  return `${monthValue}/${dayValue}/${yearValue}`;
+}
+
+function setAddExpenseDateSegmentsFromIsoOrDisplay(value = "") {
+  const { root, month, day, year } = getAddExpenseDateSegments();
+  if (!root || !month || !day || !year) return;
+
+  const rawValue = String(value || "").trim();
+  let monthValue = "";
+  let dayValue = "";
+  let yearValue = "";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+    yearValue = rawValue.slice(0, 4);
+    monthValue = rawValue.slice(5, 7);
+    dayValue = rawValue.slice(8, 10);
+  } else {
+    const digitsOnly = rawValue.replace(/\D/g, "").slice(0, 8);
+    monthValue = digitsOnly.slice(0, 2);
+    dayValue = digitsOnly.slice(2, 4);
+    yearValue = digitsOnly.slice(4, 8);
+  }
+
+  month.value = monthValue;
+  day.value = dayValue;
+  year.value = yearValue;
+
+  updateAddExpenseDateSegmentStates();
+}
+
+function resetAddExpenseDateSegmentsToPlaceholders() {
+  const { month, day, year } = getAddExpenseDateSegments();
+
+  [month, day, year].forEach(input => {
+    if (!input) return;
+    input.value = "";
+    input.classList.add("is-placeholder");
+  });
+
+  if (dateManualInput) {
+    dateManualInput.value = "";
+  }
+}
+
+function bindAddExpenseSegmentedDateEvents() {
+  const { root } = getAddExpenseDateSegments();
+  if (!root || addExpenseDateSegmentsBound) return;
+
+  addExpenseDateSegmentsBound = true;
+
+  root.addEventListener("focusin", event => {
+    const input = event.target.closest(".add-date-segment");
+    if (!input) return;
+
+    root.classList.remove("error");
+    dateInput?.classList.remove("error");
+    if (dateError) dateError.textContent = "";
+
+    updateAddDateSegmentState(input);
+
+    requestAnimationFrame(() => {
+      if (document.activeElement === input) {
+        input.select();
+      }
+    });
+  });
+
+  root.addEventListener("beforeinput", event => {
+    const input = event.target.closest(".add-date-segment");
+    if (!input) return;
+
+    const segment = input.dataset.addDateSegment || "";
+    const maxLength = getAddDateSegmentMaxLength(segment);
+    const currentValue = getCleanAddDateSegmentValue(input, segment);
+    const selectionStart = input.selectionStart ?? currentValue.length;
+    const selectionEnd = input.selectionEnd ?? selectionStart;
+    const selectedLength = Math.max(0, selectionEnd - selectionStart);
+
+    if (event.inputType?.startsWith("insert")) {
+      const insertedText = event.data || "";
+
+      if (!/^\d*$/.test(insertedText)) {
+        event.preventDefault();
+        return;
+      }
+
+      const nextLength = currentValue.length - selectedLength + insertedText.length;
+
+      if (nextLength > maxLength) {
+        event.preventDefault();
+        return;
+      }
+    }
+
+    if (
+      (event.inputType === "deleteContentBackward" || event.inputType === "deleteContentForward") &&
+      currentValue.length === 0
+    ) {
+      event.preventDefault();
+    }
+  });
+
+  root.addEventListener("keydown", event => {
+    const input = event.target.closest(".add-date-segment");
+    if (!input) return;
+
+    const allowedKeys = [
+      "Backspace", "Delete", "Tab", "Enter", "Escape",
+      "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"
+    ];
+
+    const segment = input.dataset.addDateSegment || "";
+    const cleanValue = getCleanAddDateSegmentValue(input, segment);
+
+    if (event.key.length === 1 && !/\d/.test(event.key)) {
+      event.preventDefault();
+      return;
+    }
+
+    if ((event.key === "Backspace" || event.key === "Delete") && cleanValue.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!allowedKeys.includes(event.key) && event.key.length !== 1) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      syncTypedDateToHidden(true);
+      input.blur();
+    }
+  });
+
+  root.addEventListener("paste", event => {
+    const input = event.target.closest(".add-date-segment");
+    if (!input) return;
+
+    event.preventDefault();
+
+    const segment = input.dataset.addDateSegment || "";
+    const maxLength = getAddDateSegmentMaxLength(segment);
+    const pastedDigits = event.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, maxLength);
+
+    input.value = pastedDigits;
+    updateAddDateSegmentState(input);
+    syncTypedDateToHidden(false);
+  });
+
+  root.addEventListener("input", event => {
+    const input = event.target.closest(".add-date-segment");
+    if (!input) return;
+
+    updateAddDateSegmentState(input);
+
+    root.classList.remove("error");
+    dateInput?.classList.remove("error");
+    if (dateError) dateError.textContent = "";
+
+    syncTypedDateToHidden(false);
+  });
+
+  root.addEventListener("focusout", event => {
+    if (root.contains(event.relatedTarget)) return;
+
+    updateAddExpenseDateSegmentStates();
+    syncTypedDateToHidden(hasAnyAddExpenseDateSegmentValue());
+  });
+}
+
+ensureTypedDateInput();
+ensureAddExpenseCategoryMenu();
+
+function getDateDisplayParts(value) {
+  const rawValue = String(value ?? "").trim();
+  const displayValue = /^\d{4}-\d{2}-\d{2}$/.test(rawValue)
+    ? formatDateDisplay(rawValue)
+    : getDateEditDisplay(rawValue);
+  const digitsOnly = String(displayValue ?? "").replace(/\D/g, "").slice(0, 8);
+
+  return {
+    month: digitsOnly.slice(0, 2),
+    day: digitsOnly.slice(2, 4),
+    year: digitsOnly.slice(4, 8)
+  };
+}
+
+function getDateSegmentPlaceholder(segment) {
+  return DATE_SEGMENT_PLACEHOLDERS[segment] || "";
+}
+
+function isDateSegmentPlaceholderValue(value, segment = "") {
+  const rawValue = String(value ?? "").trim().toUpperCase();
+  const placeholder = getDateSegmentPlaceholder(segment);
+
+  if (placeholder) return rawValue === placeholder;
+
+  return Object.values(DATE_SEGMENT_PLACEHOLDERS).includes(rawValue);
+}
+
+function getDateSegmentMaxLength(segment) {
+  return segment === "year" ? 4 : 2;
+}
+
+function getCleanDateSegmentValue(inputOrValue, segment = "") {
+  const rawValue = typeof inputOrValue === "string"
+    ? inputOrValue
+    : inputOrValue?.value ?? "";
+
+  if (isDateSegmentPlaceholderValue(rawValue, segment)) return "";
+
+  return String(rawValue).replace(/\D/g, "").slice(0, getDateSegmentMaxLength(segment));
+}
+
+function setDateSegmentPlaceholder(input) {
+  if (!input) return;
+
+  const segment = input.dataset.segment || "";
+  const placeholder = getDateSegmentPlaceholder(segment);
+
+  if (!placeholder) return;
+
+  // Use the real input placeholder, not the input value.
+  // This keeps MM/DD/YYYY visible but prevents users from deleting the
+  // placeholder text or the / separators as editable content.
+  input.placeholder = placeholder;
+
+  if (isDateSegmentPlaceholderValue(input.value, segment)) {
+    input.value = "";
+  }
+
+  if (!getCleanDateSegmentValue(input, segment)) {
+    input.value = "";
+    input.classList.add("is-placeholder");
+  }
+
+  input.setAttribute("aria-label", `${segment || "date"} ${placeholder}`);
+}
+
+function clearDateSegmentPlaceholder(input) {
+  if (!input) return;
+
+  const segment = input.dataset.segment || "";
+
+  // Backward compatibility: older versions stored MM/DD/YYYY placeholders
+  // inside value. Clear those only; normal placeholder text is not a value.
+  if (isDateSegmentPlaceholderValue(input.value, segment)) {
+    input.value = "";
+  }
+
+  input.classList.remove("is-placeholder");
+}
+
+function ensureDateSegmentPlaceholder(input) {
+  if (!input) return;
+
+  const segment = input.dataset.segment || "";
+  const cleanValue = getCleanDateSegmentValue(input, segment);
+
+  if (!cleanValue) {
+    setDateSegmentPlaceholder(input);
+    return;
+  }
+
+  input.value = cleanValue;
+  input.classList.remove("is-placeholder");
+}
+
+function restoreDateEditorPlaceholders(editorOrCell) {
+  const root = editorOrCell?.querySelector?.(".table-date-editor") || editorOrCell;
+  if (!root) return;
+
+  root.querySelectorAll(".table-date-segment").forEach(ensureDateSegmentPlaceholder);
+}
+
+function isDateSegmentValueComplete(segment, value) {
+  return getCleanDateSegmentValue(value, segment).length === getDateSegmentMaxLength(segment);
+}
+
+function isDateSegmentValueValid(segment, value) {
+  const cleanValue = getCleanDateSegmentValue(value, segment);
+
+  if (!isDateSegmentValueComplete(segment, cleanValue)) return false;
+
+  const numberValue = Number(cleanValue);
+
+  if (segment === "month") return numberValue >= 1 && numberValue <= 12;
+  if (segment === "day") return numberValue >= 1 && numberValue <= 31;
+  if (segment === "year") return numberValue >= 1 && numberValue <= MAX_VALID_YEAR;
+
+  return true;
+}
+
+function updateDateSegmentState(input) {
+  if (!input) return;
+
+  const segment = input.dataset.segment || "";
+  const cleanValue = getCleanDateSegmentValue(input, segment);
+  const isPlaceholder = cleanValue === "";
+  const isComplete = isDateSegmentValueComplete(segment, cleanValue);
+  const isInvalid = Boolean(cleanValue) && isComplete && !isDateSegmentValueValid(segment, cleanValue);
+
+  if (isPlaceholder) {
+    setDateSegmentPlaceholder(input);
+  } else {
+    input.value = cleanValue;
+    input.classList.remove("is-placeholder");
+  }
+
+  input.classList.toggle("is-placeholder", isPlaceholder);
+  input.classList.toggle("is-incomplete", Boolean(cleanValue) && !isComplete);
+  input.classList.toggle("is-segment-invalid", isInvalid);
+}
+
+function updateDateEditorSegmentStates(editorOrCell) {
+  const root = editorOrCell?.querySelector?.(".table-date-editor") || editorOrCell;
+  if (!root) return;
+
+  root.querySelectorAll(".table-date-segment").forEach(updateDateSegmentState);
+}
+
+function createDateEditorMarkup(value, index) {
+  const parts = getDateDisplayParts(value);
+
+  const segmentMarkup = (segment, className, label) => {
+    const placeholder = getDateSegmentPlaceholder(segment);
+    const rawValue = parts[segment] || "";
+    const placeholderClass = rawValue ? "" : " is-placeholder";
+
+    return `
+      <input
+        class="table-date-segment ${className}${placeholderClass}"
+        data-field="date"
+        data-index="${index}"
+        data-segment="${segment}"
+        data-placeholder-value="${placeholder}"
+        type="text"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="${getDateSegmentMaxLength(segment)}"
+        aria-label="${label}"
+        placeholder="${placeholder}"
+        value="${escapeHtml(rawValue)}"
+      >
+    `;
+  };
+
+  return `
+    <div class="table-date-editor" data-index="${index}" aria-label="Edit date" contenteditable="false">
+      ${segmentMarkup("month", "table-date-month", "Month")}
+      <span class="table-date-separator" aria-hidden="true">/</span>
+      ${segmentMarkup("day", "table-date-day", "Day")}
+      <span class="table-date-separator" aria-hidden="true">/</span>
+      ${segmentMarkup("year", "table-date-year", "Year")}
+    </div>
+  `;
+}
+
+function getDateEditValueFromCell(cell) {
+  const input = cell?.querySelector?.(".table-date-input");
+
+  if (input) {
+    return getDateEditDisplay(input.value || "");
+  }
+
+  // Date cells use segmented inputs so the / characters are never editable text.
+  const editor = cell?.querySelector?.(".table-date-editor");
+
+  if (!editor) {
+    return getDateEditDisplay(cell?.innerText || "");
+  }
+
+  const monthInput = editor.querySelector('[data-segment="month"]');
+  const dayInput = editor.querySelector('[data-segment="day"]');
+  const yearInput = editor.querySelector('[data-segment="year"]');
+
+  const month = getCleanDateSegmentValue(monthInput, "month");
+  const day = getCleanDateSegmentValue(dayInput, "day");
+  const year = getCleanDateSegmentValue(yearInput, "year");
+
+  return `${month}/${day}/${year}`;
+}
+
+function normalizeDateInputValue(input) {
+  if (!input) return;
+
+  const previousValue = input.value;
+  const selectionStart = input.selectionStart ?? previousValue.length;
+  const digitsBeforeCaret = previousValue.slice(0, selectionStart).replace(/\D/g, "").length;
+  const nextValue = getDateEditDisplay(previousValue);
+
+  if (previousValue !== nextValue) {
+    input.value = nextValue;
+    const nextCaret = getDateCaretOffsetFromDigitCount(nextValue, digitsBeforeCaret);
+    requestAnimationFrame(() => {
+      input.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+}
+
+function sanitizeDateSegmentInput(input) {
+  if (!input) return;
+
+  const segment = input.dataset.segment || "";
+  const maxLength = getDateSegmentMaxLength(segment);
+  const sanitizedValue = getCleanDateSegmentValue(input, segment).slice(0, maxLength);
+
+  if (input.value !== sanitizedValue) {
+    const selectionStart = Math.min(input.selectionStart ?? sanitizedValue.length, sanitizedValue.length);
+    input.value = sanitizedValue;
+
+    requestAnimationFrame(() => {
+      input.setSelectionRange(selectionStart, selectionStart);
+    });
+  }
+
+  if (sanitizedValue) {
+    input.classList.remove("is-placeholder");
+  } else {
+    setDateSegmentPlaceholder(input);
+  }
+
+  updateDateSegmentState(input);
+}
+
+function prepareDateSegmentForEdit(input) {
+  if (!input) return;
+
+  clearDateSegmentPlaceholder(input);
+
+  requestAnimationFrame(() => {
+    if (document.activeElement === input) {
+      input.select();
+    }
+  });
+}
+
+function selectDateSegment(input) {
+  prepareDateSegmentForEdit(input);
+}
+
+function selectDateInput(input) {
+  if (!input) return;
+
+  requestAnimationFrame(() => {
+    if (typeof input.setSelectionRange === "function") {
+      const length = input.value.length;
+      input.setSelectionRange(length, length);
+    }
+  });
+}
+
+function syncDateCellFromEditor(cell) {
+  if (!cell || !isEditMode) return;
+
+  updateDateEditorSegmentStates(cell);
+
+  const index = Number(cell.dataset.index);
+  if (!Number.isInteger(index)) return;
+
+  const value = getDateEditValueFromCell(cell);
+  const dateResult = validateEditedDateValue(value);
+
+  draftExpenses[index].dateError = dateResult.error;
+  draftExpenses[index].dateEditValue = value;
+
+  if (dateResult.error) {
+    cell.classList.add("invalid-edit-cell");
+    cell.title = dateResult.error;
+    return;
+  }
+
+  // Keep the typed date in dateEditValue until Save so the row never re-sorts
+  // while the user is still editing. validateDraftTableEdits() commits it.
+  cell.classList.remove("invalid-edit-cell");
+  cell.title = formatDateDisplay(dateResult.isoDate);
+}
+
+
+function getEditableCellTextSurface(cell) {
+  if (!cell) return null;
+
+  let surface = cell.querySelector?.(":scope > .cell-text") || cell.querySelector?.(".cell-text");
+
+  // Amount/title/description cells rely on .cell-text for the edit border.
+  // If previous editing replaced the td contents with raw text, restore the span
+  // instead of leaving the cell without a border target.
+  if (!surface && !cell.querySelector?.(".table-date-editor")) {
+    const text = cell.textContent || "";
+    cell.textContent = "";
+    surface = document.createElement("span");
+    surface.className = "cell-text";
+    surface.textContent = text;
+    cell.appendChild(surface);
+  }
+
+  return surface;
+}
+
+function getEditableCellText(cell) {
+  const surface = getEditableCellTextSurface(cell);
+  return surface ? surface.textContent : (cell?.innerText || "");
+}
+
+function setEditableCellText(cell, value, caretOffset = null) {
+  const surface = getEditableCellTextSurface(cell);
+
+  if (surface) {
+    surface.textContent = String(value ?? "");
+
+    if (caretOffset != null) {
+      setCaretCharacterOffsetWithin(surface, caretOffset);
+    }
+
+    return;
+  }
+
+  if (cell) {
+    cell.innerText = String(value ?? "");
+
+    if (caretOffset != null) {
+      setCaretCharacterOffsetWithin(cell, caretOffset);
+    }
+  }
+}
+
+function getCaretCharacterOffsetWithin(element) {
+  const selection = window.getSelection();
+
+  if (!selection || selection.rangeCount === 0) return 0;
+
+  const range = selection.getRangeAt(0);
+  const preCaretRange = range.cloneRange();
+
+  preCaretRange.selectNodeContents(element);
+  preCaretRange.setEnd(range.endContainer, range.endOffset);
+
+  return preCaretRange.toString().length;
+}
+
+function setCaretCharacterOffsetWithin(element, offset) {
+  if (!element) return;
+
+  const selection = window.getSelection();
+  if (!selection) return;
+
+  const walker = document.createTreeWalker(
+    element,
+    NodeFilter.SHOW_TEXT,
+    null
+  );
+
+  const safeOffset = Math.max(0, Math.min(offset, element.textContent.length));
+  let remaining = safeOffset;
+  let node = walker.nextNode();
+
+  while (node) {
+    const length = node.textContent.length;
+
+    if (remaining <= length) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+
+    remaining -= length;
+    node = walker.nextNode();
+  }
+
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function getDateCaretOffsetFromDigitCount(value, digitCount) {
+  if (digitCount <= 0) return 0;
+
+  let digitsSeen = 0;
+
+  for (let i = 0; i < value.length; i++) {
+    if (/\d/.test(value[i])) {
+      digitsSeen++;
+    }
+
+    if (digitsSeen >= digitCount) {
+      return i + 1;
+    }
+  }
+
+  return value.length;
+}
+
+function normalizeEditableAmountCell(cell) {
+  if (!cell) return;
+
+  const currentValue = getEditableCellText(cell).replace(/\n/g, "");
+  const caretOffset = getCaretCharacterOffsetWithin(cell);
+  const normalizedValue = getAmountEditDisplay(currentValue);
+
+  if (currentValue === normalizedValue) {
+    getEditableCellTextSurface(cell);
+    return;
+  }
+
+  const wasMissingCurrencySymbol = !currentValue.trim().startsWith("$");
+  const nextCaretOffset = wasMissingCurrencySymbol
+    ? Math.max(1, caretOffset + 1)
+    : Math.max(1, caretOffset);
+
+  setEditableCellText(cell, normalizedValue, nextCaretOffset);
+}
+
+function normalizeEditableDateCell(cell) {
+  if (!cell) return;
+
+  const currentValue = cell.innerText.replace(/\n/g, "");
+  const caretOffset = getCaretCharacterOffsetWithin(cell);
+  const digitCountBeforeCaret = currentValue.slice(0, caretOffset).replace(/\D/g, "").length;
+  const normalizedValue = getDateEditDisplay(currentValue);
+
+  if (currentValue === normalizedValue) return;
+
+  cell.innerText = normalizedValue;
+  setCaretCharacterOffsetWithin(
+    cell,
+    getDateCaretOffsetFromDigitCount(normalizedValue, digitCountBeforeCaret)
+  );
+}
+
+function validateEditedAmountValue(value) {
+  const rawValue = String(value ?? "").trim();
+  const cleanedValue = parseCurrencyInput(rawValue);
+
+  if (cleanedValue === "") {
+    return "Amount is required";
+  }
+
+  if (hasInvalidLeadingZero(rawValue)) {
+    return "Amount cannot start with 0";
+  }
+
+  if (!/^\d+(\.\d{1,2})?$/.test(cleanedValue)) {
+    return "Use a valid amount";
+  }
+
+  const numericValue = Number(cleanedValue);
+
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return "Amount must be greater than 0";
+  }
+
+  return "";
+}
+
+function validateEditedDateValue(value) {
+  const rawValue = String(value ?? "").trim();
+
+  if (!rawValue) {
+    return {
+      error: "Date is required",
+      isoDate: ""
+    };
+  }
+
+  if (/[^0-9\/-]/.test(rawValue)) {
+    return {
+      error: "Use numbers only for the date",
+      isoDate: rawValue
+    };
+  }
+
+  const isoDate = parseTypedDateToIso(rawValue);
+
+  if (!isoDate) {
+    return {
+      error: "Use a valid date",
+      isoDate: rawValue
+    };
+  }
+
+  const year = Number(isoDate.slice(0, 4));
+
+  if (year > MAX_VALID_YEAR) {
+    return {
+      error: `Year cannot be after ${MAX_VALID_YEAR}`,
+      isoDate
+    };
+  }
+
+  if (!isValidDate(isoDate, { allowFuture: true })) {
+    return {
+      error: "Use a valid date",
+      isoDate: rawValue
+    };
+  }
+
+  if (isoDate > getTodayLocalDate()) {
+    return {
+      error: "Date cannot be after today",
+      isoDate
+    };
+  }
+
+  return {
+    error: "",
+    isoDate
+  };
+}
+
+function validateDraftTableEdits() {
+  let hasInvalidValues = false;
+  const validatedValues = [];
+
+  draftExpenses.forEach(expense => {
+    const amountValueToValidate =
+      expense.amountEditValue !== "" && expense.amountEditValue != null
+        ? expense.amountEditValue
+        : expense.amount;
+
+    const dateValueToValidate =
+      expense.dateEditValue !== "" && expense.dateEditValue != null
+        ? expense.dateEditValue
+        : expense.date;
+
+    const amountError = validateEditedAmountValue(amountValueToValidate);
+    const dateResult = validateEditedDateValue(dateValueToValidate);
+
+    expense.amountError = amountError;
+    expense.dateError = dateResult.error;
+
+    if (amountError) {
+      expense.amountEditValue = String(amountValueToValidate ?? "");
+      hasInvalidValues = true;
+    }
+
+    if (dateResult.error) {
+      // Invalid table dates reset to MM/DD/YYYY segmented placeholders after Save.
+      // The slash separators remain protected because they are not editable inputs.
+      expense.dateEditValue = "";
+      hasInvalidValues = true;
+    }
+
+    validatedValues.push({
+      expense,
+      amountValueToValidate,
+      dateResult
+    });
+  });
+
+  // Do not commit any draft amount/date into the saved fields until every
+  // edited value is valid. This keeps table order stable after a failed Save.
+  if (hasInvalidValues) {
+    return false;
+  }
+
+  validatedValues.forEach(({ expense, amountValueToValidate, dateResult }) => {
+    expense.amount = Number(parseCurrencyInput(amountValueToValidate));
+    expense.amountEditValue = "";
+    expense.date = dateResult.isoDate;
+    expense.dateEditValue = "";
+  });
+
+  return true;
+}
+
 function isExpenseDifferent(a, b) {
   return (
     a.expenseName !== b.expenseName ||
@@ -1165,27 +2292,39 @@ function getCategoryOptions(selectedCategory) {
 
 function applyRowTooltips(row, expense) {
   const rowCells = row.querySelectorAll("td");
-  const titleText = row.querySelector(".cell-text");
+  const titleCell = row.querySelector("td.title-cell");
+  const titleText = titleCell?.querySelector(".cell-text");
   const categorySelect = row.querySelector("td.category-cell select");
+  const dateCell = row.querySelector("td.date-cell");
+  const dateText = dateCell?.querySelector(".cell-text");
 
-  if (titleText) {
-    titleText.title = expense.expenseName || "";
-  }
+  const titleTooltip = expense.expenseName || "";
+  const amountTooltip = expense.amountError
+    ? expense.amountError
+    : expense.amount != null
+      ? formatAmountDisplay(expense.amount)
+      : "";
+  const dateTooltip = expense.dateError
+    ? expense.dateError
+    : formatDateDisplay(expense.date) || "";
+  const descriptionTooltip = expense.description || "";
+
+  if (titleCell) titleCell.title = titleTooltip;
+  if (titleText) titleText.title = titleTooltip;
 
   if (rowCells[1]) {
-    rowCells[1].title = expense.amount != null ? String(expense.amount) : "";
+    rowCells[1].title = amountTooltip;
   }
 
   if (categorySelect) {
     categorySelect.title = expense.category || "";
   }
 
-  if (rowCells[3]) {
-    rowCells[3].title = formatDateDisplay(expense.date) || "";
-  }
+  if (dateCell) dateCell.title = dateTooltip;
+  if (dateText) dateText.title = dateTooltip;
 
   if (rowCells[4]) {
-    rowCells[4].title = expense.description || "";
+    rowCells[4].title = descriptionTooltip;
   }
 }
 
@@ -1206,11 +2345,14 @@ function focusEditableCellAtEnd(cell) {
 
 function startRowEdit(index) {
   if (!isEditMode) {
+    captureEditModeOrder();
     isEditMode = true;
     draftExpenses = cloneExpenses(expenses);
     editTableBtn.textContent = "Save";
     cancelTableBtn.classList.remove("inactive");
   }
+
+  selectedEditRowIndex = Number.isInteger(Number(index)) ? Number(index) : null;
 
   renderExpenses();
 
@@ -1225,13 +2367,32 @@ function startRowEdit(index) {
 
 function createExpenseRow(expense, index) {
   const row = document.createElement("tr");
-  const lockedClass = !isEditMode ? "locked" : "";
-  const editableValue = isEditMode ? "true" : "false";
+  const rowIsEditable = isEditMode && (selectedEditRowIndex == null || selectedEditRowIndex === index);
+  const lockedClass = rowIsEditable ? "" : "locked";
+  const editableValue = rowIsEditable ? "true" : "false";
   const categoryOptions = getCategoryOptions(expense.category);
   const isNewlyAdded = String(expense.id) === String(newlyAddedExpenseId);
+  const hasAmountError = Boolean(expense.amountError);
+  const hasDateError = Boolean(expense.dateError);
+  const hasAmountEditValue = isEditMode && expense.amountEditValue !== "" && expense.amountEditValue != null;
+  const hasDateEditValue = isEditMode && expense.dateEditValue !== "" && expense.dateEditValue != null;
+
+  const amountDisplay = hasAmountError
+    ? getAmountEditDisplay(expense.amountEditValue)
+    : hasAmountEditValue
+      ? formatAmountDisplay(expense.amountEditValue)
+      : formatAmountDisplay(expense.amount);
+
+  const dateDisplay = hasDateEditValue
+    ? expense.dateEditValue
+    : formatDateDisplay(expense.date) || "";
 
   if (isNewlyAdded) {
     row.classList.add("new-expense-row");
+  }
+
+  if (isEditMode && selectedEditRowIndex === index) {
+    row.classList.add("selected-edit-row");
   }
 
   row.innerHTML = `
@@ -1245,12 +2406,13 @@ function createExpenseRow(expense, index) {
     </td>
 
     <td
-      class="editable ${lockedClass}"
+      class="editable amount-cell ${lockedClass} ${hasAmountError ? "invalid-edit-cell" : ""}"
       data-field="amount"
       data-index="${index}"
       contenteditable="${editableValue}"
+      title="${hasAmountError ? escapeHtml(expense.amountError) : escapeHtml(amountDisplay)}"
     >
-      <span class="cell-text">${escapeHtml(expense.amount)}</span>
+      <span class="cell-text">${escapeHtml(amountDisplay)}</span>
     </td>
 
     <td class="category-cell ${lockedClass}">
@@ -1258,22 +2420,25 @@ function createExpenseRow(expense, index) {
         class="editable"
         data-field="category"
         data-index="${index}"
-        ${!isEditMode ? "disabled" : ""}
+        ${!rowIsEditable ? "disabled" : ""}
       >
         ${categoryOptions}
       </select>
     </td>
 
     <td
-      class="editable date-cell ${lockedClass}"
+      class="editable date-cell ${lockedClass} ${hasDateError ? "invalid-edit-cell" : ""}"
       data-field="date"
       data-index="${index}"
-      contenteditable="${editableValue}"
+      contenteditable="false"
+      title="${hasDateError ? escapeHtml(expense.dateError) : escapeHtml(formatDateDisplay(validateEditedDateValue(dateDisplay).isoDate || expense.date) || dateDisplay)}"
     >
-      <span class="cell-text">${escapeHtml(formatDateDisplay(expense.date) || "")}</span>
+      ${rowIsEditable
+        ? createDateEditorMarkup(dateDisplay, index)
+        : `<span class="cell-text">${escapeHtml(formatDateDisplay(expense.date) || "")}</span>`}
     </td>
 
-   <td
+    <td
       class="editable description-cell ${lockedClass}"
       data-field="description"
       data-index="${index}"
@@ -1298,7 +2463,7 @@ function createExpenseRow(expense, index) {
           </svg>
         </button>
 
-       <button
+        <button
           class="row-icon-btn delete-btn ${!isEditMode ? "hidden-delete" : ""}"
           type="button"
           data-action="delete"
@@ -1398,8 +2563,14 @@ function commitActiveTableCell() {
 
   if (!Number.isInteger(index) || !field) return;
 
-  updateExpense(index, field, cell.innerText, cell);
-  cell.classList.remove("editing");
+  const value = field === "date"
+    ? getDateEditValueFromCell(cell)
+    : field === "amount"
+      ? getEditableCellText(cell)
+      : cell.innerText;
+
+  updateExpense(index, field, value, cell);
+  cell.classList.remove("editing", "active-edit-cell");
 }
 
 async function saveDraftChanges() {
@@ -1443,6 +2614,7 @@ async function loadExpenses() {
       .sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
 
     draftExpenses = cloneExpenses(expenses);
+    if (!isEditMode) clearEditModeOrder();
     clearStatus();
     renderExpenses();
   } catch (error) {
@@ -1868,6 +3040,13 @@ function renderChart() {
 }
 
 function renderExpenses() {
+  const expenseTable = document.getElementById("expense-table");
+
+  if (expenseTable) {
+    expenseTable.classList.toggle("global-edit-mode", isEditMode && selectedEditRowIndex == null);
+    expenseTable.classList.toggle("row-edit-mode", isEditMode && selectedEditRowIndex != null);
+  }
+
   expenseBody.innerHTML = "";
 
   const sourceExpenses = getTableExpenses();
@@ -1945,21 +3124,24 @@ function renderExpenses() {
 // ---------- Form validation ----------
 function validateAmountLive() {
   const amountRaw = amountInput.value;
+  const amountValue = getCurrencyNumber(amountRaw);
   const helper = document.getElementById("amount-helper");
 
   helper.textContent = "";
   helper.classList.remove("error");
   amountInput.classList.remove("error");
 
-  if (amountRaw === "") return;
+  if (amountRaw.trim() === "") return;
 
-  const amount = Number(amountRaw);
-
-  if (isNaN(amount)) {
+  if (amountValue === null || isNaN(amountValue)) {
     helper.textContent = "Please enter a valid number";
     helper.classList.add("error");
     amountInput.classList.add("error");
-  } else if (amount <= 0) {
+  } else if (hasInvalidLeadingZero(amountRaw)) {
+    helper.textContent = "Amount cannot start with 0";
+    helper.classList.add("error");
+    amountInput.classList.add("error");
+  } else if (amountValue <= 0) {
     helper.textContent = "Amount must be greater than 0";
     helper.classList.add("error");
     amountInput.classList.add("error");
@@ -1979,7 +3161,8 @@ async function addExpense() {
 
   const expenseName = expenseNameInput.value.trim();
   const amountRaw = amountInput.value;
-  const amount = amountRaw === "" ? null : Number(amountRaw);
+  const amountCleaned = parseCurrencyInput(amountRaw);
+  const amount = amountCleaned === "" ? null : Number(amountCleaned);
   const category = categoryInput.value;
   const date = dateInput.value;
   const description = descInput.value.trim();
@@ -2153,6 +3336,13 @@ async function addExpense() {
 async function deleteExpense(index) {
   if (isEditMode) {
     draftExpenses.splice(index, 1);
+
+    if (selectedEditRowIndex === index) {
+      selectedEditRowIndex = null;
+    } else if (selectedEditRowIndex != null && selectedEditRowIndex > index) {
+      selectedEditRowIndex -= 1;
+    }
+
     renderExpenses();
     return;
   }
@@ -2177,61 +3367,84 @@ function updateExpense(index, field, value, el = null) {
   if (!isEditMode) return;
 
   const targetExpenses = draftExpenses;
-  value = value.trim();
+  value = String(value ?? "").trim();
 
   if (field === "date") {
-    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    const dateValue = el?.querySelector?.(".table-date-editor")
+      ? getDateEditValueFromCell(el)
+      : getDateEditDisplay(value);
+    const dateResult = validateEditedDateValue(dateValue);
 
-    if (!match) {
-      if (el) el.innerText = formatDateDisplay(targetExpenses[index].date || "");
+    targetExpenses[index].dateError = dateResult.error;
+    targetExpenses[index].dateEditValue = dateValue;
+
+    if (dateResult.error) {
+      if (el) {
+        el.classList.add("invalid-edit-cell");
+        el.title = dateResult.error;
+
+        if (!el.querySelector(".table-date-editor")) {
+          el.innerText = getDateEditDisplay(dateValue);
+        }
+      }
+
       return;
     }
 
-    const [, month, day, year] = match;
-    const isoDate = `${year}-${month}-${day}`;
-
-    if (!isValidDate(isoDate)) {
-      targetExpenses[index].dateError = "Invalid calendar date";
-      if (el) el.innerText = formatDateDisplay(targetExpenses[index].date || "");
-      return;
-    }
-
-    targetExpenses[index].dateError = "";
-    targetExpenses[index].date = isoDate;
-
+    // Do not update targetExpenses[index].date here. Keeping the saved date
+    // stable prevents the row from re-sorting before the Save action succeeds.
     if (el) {
-      el.innerText = formatDateDisplay(isoDate);
+      el.classList.remove("invalid-edit-cell");
+      el.title = formatDateDisplay(dateResult.isoDate);
+
+      if (!el.querySelector(".table-date-editor")) {
+        el.innerText = formatDateDisplay(dateResult.isoDate);
+      }
     }
 
     return;
   }
 
   if (field === "amount") {
-    const previousValue = targetExpenses[index].amount.toString();
+    const amountError = validateEditedAmountValue(value);
+    const normalizedAmountValue = getAmountEditDisplay(value);
 
-    if (hasInvalidLeadingZero(value)) {
-      if (el) el.innerText = previousValue;
+    targetExpenses[index].amountError = amountError;
+    targetExpenses[index].amountEditValue = normalizedAmountValue;
+
+    if (amountError) {
+      if (el) {
+        setEditableCellText(el, normalizedAmountValue);
+        el.classList.add("invalid-edit-cell");
+        el.title = amountError;
+      }
+
       return;
     }
 
-    const isValid = /^\d+(\.\d{1,2})?$/.test(value);
-
-    if (!isValid) {
-      if (el) el.innerText = previousValue;
-      return;
+    // Do not update targetExpenses[index].amount here. validateDraftTableEdits()
+    // commits the parsed number on Save, which keeps row order stable while editing.
+    if (el) {
+      const formattedAmount = formatCurrency(Number(parseCurrencyInput(value)));
+      setEditableCellText(el, formattedAmount);
+      el.classList.remove("invalid-edit-cell");
+      el.title = formattedAmount;
     }
 
-    const numericValue = Number(value);
+    return;
+  }
 
-    if (numericValue <= 0 || isNaN(numericValue)) {
-      if (el) el.innerText = previousValue;
-      return;
-    }
-
-    targetExpenses[index].amount = numericValue;
+  if (field === "expenseName") {
+    const titleValue = value.replace(/\n/g, " ");
+    targetExpenses[index].expenseName = titleValue;
 
     if (el) {
-      el.innerText = String(numericValue);
+      const titleSurface = getEditableCellTextSurface(el);
+      el.title = titleValue;
+
+      if (titleSurface) {
+        titleSurface.title = titleValue;
+      }
     }
 
     return;
@@ -2241,9 +3454,18 @@ function updateExpense(index, field, value, el = null) {
     const limitedValue = value.slice(0, DESCRIPTION_LIMIT);
     targetExpenses[index].description = limitedValue;
 
-    if (el && el.innerText !== limitedValue) {
-      el.innerText = limitedValue;
-      focusEditableCellAtEnd(el);
+    if (el) {
+      el.title = limitedValue;
+
+      const descriptionSurface = getEditableCellTextSurface(el);
+      if (descriptionSurface) {
+        descriptionSurface.title = limitedValue;
+      }
+
+      if (el.innerText !== limitedValue) {
+        el.innerText = limitedValue;
+        focusEditableCellAtEnd(el);
+      }
     }
 
     return;
@@ -2261,6 +3483,8 @@ function resetDashboardView() {
   currentPage = 1;
   draftExpenses = cloneExpenses(expenses);
   isEditMode = false;
+  selectedEditRowIndex = null;
+  clearEditModeOrder();
 
   if (expenseSearchInput) {
     expenseSearchInput.value = "";
@@ -2273,12 +3497,7 @@ function resetDashboardView() {
   editTableBtn.textContent = "Edit";
   cancelTableBtn.classList.add("inactive");
 
-  document.querySelectorAll(".filter-btn").forEach(btn => {
-    btn.classList.remove("active");
-    if (btn.dataset.category === "All") {
-      btn.classList.add("active");
-    }
-  });
+  syncFilterMenuState();
 
   const sortSelect = document.getElementById("sort-select");
   if (sortSelect) {
@@ -2388,30 +3607,252 @@ function logout(event) {
 }
 
 // ---------- Table event delegation ----------
-function handleTableFocusIn(event) {
-  const cell = event.target.closest("td[data-field]");
+function clearActiveTableCellStyles(exceptCell = null) {
+  document
+    .querySelectorAll("#expense-table td.editing, #expense-table td.active-edit-cell")
+    .forEach(cell => {
+      if (cell !== exceptCell) {
+        cell.classList.remove("editing", "active-edit-cell");
+      }
+    });
+}
+
+function activateEditableCell(cell) {
   if (!cell || cell.classList.contains("locked")) return;
 
   activeEditCell = cell;
-  cell.classList.add("editing");
+  clearActiveTableCellStyles(cell);
+
+  cell.classList.remove("editing", "active-edit-cell");
+  // Force a style recalculation so re-selecting the same previously active cell
+  // reliably redraws the green/red edit ring.
+  void cell.offsetWidth;
+  cell.classList.add("editing", "active-edit-cell");
+
+  requestAnimationFrame(() => {
+    if (activeEditCell === cell && cell.isConnected && !cell.classList.contains("locked")) {
+      cell.classList.add("editing", "active-edit-cell");
+    }
+  });
+}
+
+function updateAmountCellLive(cell) {
+  if (!cell || !isEditMode) return;
+
+  const index = Number(cell.dataset.index);
+  if (!Number.isInteger(index)) return;
+
+  normalizeEditableAmountCell(cell);
+
+  const value = getEditableCellText(cell);
+  const amountError = validateEditedAmountValue(value);
+
+  draftExpenses[index].amountError = amountError;
+  draftExpenses[index].amountEditValue = getAmountEditDisplay(value);
+
+  if (amountError) {
+    cell.classList.add("invalid-edit-cell");
+    cell.title = amountError;
+    return;
+  }
+
+  // Keep the typed amount in amountEditValue until Save so amount-based sorting
+  // cannot move the row while the user is still editing.
+  cell.classList.remove("invalid-edit-cell");
+  cell.title = formatCurrency(Number(parseCurrencyInput(value)));
+}
+
+function handleTablePointerDown(event) {
+  if (!isEditMode) return;
+
+  const cell = event.target.closest("td[data-field]");
+  if (!cell || cell.classList.contains("locked")) return;
+
+  activateEditableCell(cell);
+
+  // Amount/title/description cells are contenteditable on the td. Calling focus()
+  // here makes re-clicking an already edited amount cell redraw the same active ring
+  // instead of relying on the browser to re-fire focusin.
+  if (cell.isContentEditable && document.activeElement !== cell) {
+    requestAnimationFrame(() => {
+      if (activeEditCell === cell && cell.isConnected && !cell.classList.contains("locked")) {
+        cell.focus({ preventScroll: true });
+      }
+    });
+  }
+}
+
+function handleTableBeforeInput(event) {
+  const cell = event.target.closest("td[data-field]");
+  if (!cell || cell.classList.contains("locked")) return;
+
+  const field = cell.dataset.field;
+
+  if (field === "date") {
+    const dateSegment = event.target.closest(".table-date-segment");
+
+    if (dateSegment) {
+      const segment = dateSegment.dataset.segment || "";
+      const maxLength = getDateSegmentMaxLength(segment);
+      const currentValue = getCleanDateSegmentValue(dateSegment, segment);
+      const selectionStart = dateSegment.selectionStart ?? currentValue.length;
+      const selectionEnd = dateSegment.selectionEnd ?? selectionStart;
+      const selectedLength = Math.max(0, selectionEnd - selectionStart);
+
+      if (event.inputType?.startsWith("insert")) {
+        const insertedText = event.data || "";
+
+        if (!/^\d*$/.test(insertedText)) {
+          event.preventDefault();
+          return;
+        }
+
+        const nextLength = currentValue.length - selectedLength + insertedText.length;
+        if (nextLength > maxLength) {
+          event.preventDefault();
+          return;
+        }
+      }
+
+      if (
+        (event.inputType === "deleteContentBackward" || event.inputType === "deleteContentForward") &&
+        currentValue.length === 0
+      ) {
+        event.preventDefault();
+        setDateSegmentPlaceholder(dateSegment);
+        return;
+      }
+
+      return;
+    }
+
+    const dateInputEl = event.target.closest(".table-date-input");
+
+    if (dateInputEl) {
+      const value = dateInputEl.value || "";
+      const selectionStart = dateInputEl.selectionStart ?? value.length;
+      const selectionEnd = dateInputEl.selectionEnd ?? selectionStart;
+      const selectedText = value.slice(selectionStart, selectionEnd);
+
+      if (event.inputType?.startsWith("insert") && selectedText.includes("/")) {
+        event.preventDefault();
+        return;
+      }
+
+      if ((event.inputType === "deleteContentBackward" || event.inputType === "deleteContentForward") && selectedText.includes("/")) {
+        event.preventDefault();
+        return;
+      }
+
+      if (event.inputType === "deleteContentBackward" && selectionStart === selectionEnd && value[selectionStart - 1] === "/") {
+        event.preventDefault();
+        dateInputEl.setSelectionRange(selectionStart - 1, selectionStart - 1);
+        return;
+      }
+
+      if (event.inputType === "deleteContentForward" && selectionStart === selectionEnd && value[selectionStart] === "/") {
+        event.preventDefault();
+        dateInputEl.setSelectionRange(selectionStart + 1, selectionStart + 1);
+        return;
+      }
+
+      return;
+    }
+
+    // Protect the segmented date structure itself. Only the individual
+    // MM, DD, or YYYY inputs are editable; the slashes and placeholder layout
+    // should never be deleted as one text selection.
+    if (event.inputType?.startsWith("delete") || event.inputType?.startsWith("insert")) {
+      event.preventDefault();
+      restoreDateEditorPlaceholders(cell);
+      return;
+    }
+  }
+
+  if (field === "description" && event.inputType?.startsWith("insert")) {
+    const currentValue = cell.innerText.replace(/\n/g, " ");
+    const selectedText = window.getSelection()?.toString() || "";
+    const insertedText = event.data || "";
+    const nextLength = currentValue.length - selectedText.length + insertedText.length;
+
+    if (nextLength > DESCRIPTION_LIMIT) {
+      event.preventDefault();
+    }
+  }
+
+  if (field === "amount" && event.inputType === "deleteContentBackward") {
+    const selection = window.getSelection();
+    const caretOffset = getCaretCharacterOffsetWithin(cell);
+
+    if (cell.innerText.trim().startsWith("$") && caretOffset <= 1 && selection?.isCollapsed) {
+      event.preventDefault();
+    }
+  }
+}
+
+function handleTableFocusIn(event) {
+  const dateSegment = event.target.closest(".table-date-segment");
+  const dateInputEl = event.target.closest(".table-date-input");
+  const cell = event.target.closest("td[data-field]");
+  if (!cell || cell.classList.contains("locked")) return;
+
+  activateEditableCell(cell);
+
+  if (dateInputEl) {
+    normalizeDateInputValue(dateInputEl);
+    selectDateInput(dateInputEl);
+    syncDateCellFromEditor(cell);
+    return;
+  }
+
+  if (dateSegment) {
+    selectDateSegment(dateSegment);
+    syncDateCellFromEditor(cell);
+    return;
+  }
+
+  if (cell.dataset.field === "amount") {
+    normalizeEditableAmountCell(cell);
+    updateAmountCellLive(cell);
+  }
 }
 
 function handleTableFocusOut(event) {
   const cell = event.target.closest("td[data-field]");
   if (!cell || cell.classList.contains("locked")) return;
-  if (cell.contains(event.relatedTarget)) return;
 
-  cell.classList.remove("editing");
+  const lostDateSegment = event.target.closest(".table-date-segment");
+  if (lostDateSegment) {
+    ensureDateSegmentPlaceholder(lostDateSegment);
+    updateDateEditorSegmentStates(cell);
+    syncDateCellFromEditor(cell);
+  }
+
+  if (cell.contains(event.relatedTarget)) return;
 
   const index = Number(cell.dataset.index);
   const field = cell.dataset.field;
-  const value = cell.innerText;
 
-  if (field === "amount" || field === "date") {
+  if (Number.isInteger(index) && field) {
+    const value = field === "date"
+      ? getDateEditValueFromCell(cell)
+      : field === "amount"
+        ? getEditableCellText(cell)
+        : cell.innerText;
+
     updateExpense(index, field, value, cell);
-  } else {
-    updateExpense(index, field, value);
   }
+
+  if (field === "date") {
+    restoreDateEditorPlaceholders(cell);
+    updateDateEditorSegmentStates(cell);
+  }
+
+  // Do not remove the active/editing classes here. Focusout fires before the
+  // next cell fully receives focus, and removing classes in this handler caused
+  // previously selected cells to lose their green border when clicked again.
+  // Active-cell styling is now controlled by pointerdown/focusin activation and
+  // cleared only when the user clicks outside the table.
 }
 
 function handleTableChange(event) {
@@ -2423,8 +3864,62 @@ function handleTableChange(event) {
 }
 
 function handleTableInput(event) {
-  const cell = event.target.closest("td[data-field='description']");
+  const dateInputEl = event.target.closest(".table-date-input");
+
+  if (dateInputEl) {
+    normalizeDateInputValue(dateInputEl);
+    const cell = dateInputEl.closest("td[data-field='date']");
+    activateEditableCell(cell);
+    syncDateCellFromEditor(cell);
+    return;
+  }
+
+  const dateSegment = event.target.closest(".table-date-segment");
+
+  if (dateSegment) {
+    sanitizeDateSegmentInput(dateSegment);
+    const cell = dateSegment.closest("td[data-field='date']");
+    activateEditableCell(cell);
+    syncDateCellFromEditor(cell);
+    return;
+  }
+
+  const cell = event.target.closest("td[data-field]");
   if (!cell || cell.classList.contains("locked")) return;
+
+  const index = Number(cell.dataset.index);
+  const field = cell.dataset.field;
+
+  if (!Number.isInteger(index)) return;
+
+  activateEditableCell(cell);
+
+  if (field === "amount") {
+    updateAmountCellLive(cell);
+    return;
+  }
+
+  if (field === "date") {
+    syncDateCellFromEditor(cell);
+    return;
+  }
+
+  if (field === "expenseName") {
+    const value = getEditableCellText(cell).replace(/\n/g, " ");
+    const titleSurface = getEditableCellTextSurface(cell);
+
+    cell.title = value;
+
+    if (titleSurface) {
+      titleSurface.title = value;
+    }
+
+    cell.classList.remove("invalid-edit-cell");
+    draftExpenses[index].expenseName = value;
+    return;
+  }
+
+  if (field !== "description") return;
 
   let value = cell.innerText.replace(/\n/g, " ");
 
@@ -2434,14 +3929,112 @@ function handleTableInput(event) {
     focusEditableCellAtEnd(cell);
   }
 
-  const index = Number(cell.dataset.index);
+  const descriptionSurface = getEditableCellTextSurface(cell);
 
-  if (Number.isInteger(index)) {
-    draftExpenses[index].description = value;
+  cell.title = value;
+
+  if (descriptionSurface) {
+    descriptionSurface.title = value;
+  }
+
+  cell.classList.remove("invalid-edit-cell");
+  draftExpenses[index].description = value;
+}
+
+function handleMaskedCellKeydown(event) {
+  const dateSegment = event.target.closest(".table-date-segment");
+
+  if (dateSegment) {
+    const allowedKeys = [
+      "Backspace", "Delete", "Tab", "Enter", "Escape",
+      "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"
+    ];
+    const segment = dateSegment.dataset.segment || "";
+    const cleanValue = getCleanDateSegmentValue(dateSegment, segment);
+
+    if (event.key.length === 1 && !/\d/.test(event.key)) {
+      event.preventDefault();
+      return;
+    }
+
+    if ((event.key === "Backspace" || event.key === "Delete") && cleanValue.length === 0) {
+      event.preventDefault();
+      setDateSegmentPlaceholder(dateSegment);
+      return;
+    }
+
+    if (!allowedKeys.includes(event.key) && event.key.length !== 1) {
+      return;
+    }
+
+    return;
+  }
+
+  const dateInputEl = event.target.closest(".table-date-input");
+
+  if (dateInputEl) {
+    const allowedKeys = [
+      "Backspace", "Delete", "Tab", "Enter", "Escape",
+      "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"
+    ];
+
+    const value = dateInputEl.value || "";
+    const selectionStart = dateInputEl.selectionStart ?? value.length;
+    const selectionEnd = dateInputEl.selectionEnd ?? selectionStart;
+    const selectedText = value.slice(selectionStart, selectionEnd);
+
+    if ((event.key === "Backspace" || event.key === "Delete") && selectedText.includes("/")) {
+      event.preventDefault();
+      return;
+    }
+
+    if (event.key === "Backspace" && selectionStart === selectionEnd && value[selectionStart - 1] === "/") {
+      event.preventDefault();
+      dateInputEl.setSelectionRange(selectionStart - 1, selectionStart - 1);
+      return;
+    }
+
+    if (event.key === "Delete" && selectionStart === selectionEnd && value[selectionStart] === "/") {
+      event.preventDefault();
+      dateInputEl.setSelectionRange(selectionStart + 1, selectionStart + 1);
+      return;
+    }
+
+    if (event.key.length === 1 && !/\d/.test(event.key)) {
+      event.preventDefault();
+      return;
+    }
+
+    if (!allowedKeys.includes(event.key) && event.key.length !== 1) {
+      return;
+    }
+  }
+
+  const dateCell = event.target.closest("td[data-field='date']");
+  if (dateCell && !event.target.closest(".table-date-segment, .table-date-input")) {
+    if (event.key === "Backspace" || event.key === "Delete") {
+      event.preventDefault();
+      restoreDateEditorPlaceholders(dateCell);
+      return;
+    }
+  }
+
+  const amountCell = event.target.closest("td[data-field='amount']");
+
+  if (amountCell && !amountCell.classList.contains("locked") && amountCell.innerText.trim() === "$" && event.key === "Backspace") {
+    event.preventDefault();
   }
 }
 
 function handleTableClick(event) {
+  if (isEditMode) {
+    const clickedCell = event.target.closest("td[data-field]");
+    if (clickedCell && !clickedCell.classList.contains("locked")) {
+      activateEditableCell(clickedCell);
+      requestAnimationFrame(() => activateEditableCell(clickedCell));
+    }
+  }
+
   const editButton = event.target.closest("button[data-action='edit-row']");
   if (editButton) {
     if (isEditMode || editButton.disabled) return;
@@ -2476,7 +4069,7 @@ function bindEvents() {
     helper.textContent = "";
     helper.classList.remove("error");
 
-    if (hasInvalidLeadingZero(raw)) {
+    if (raw !== "" && hasInvalidLeadingZero(raw)) {
       amountInput.value = "";
       helper.textContent = "Amount cannot start with 0";
       helper.classList.add("error");
@@ -2485,6 +4078,16 @@ function bindEvents() {
     }
 
     validateAmountLive();
+  });
+
+  amountInput.addEventListener("focus", () => {
+    resetAmountInputToRawValue();
+  });
+
+  amountInput.addEventListener("blur", () => {
+    if (!amountInput.classList.contains("error") && amountInput.value.trim() !== "") {
+      formatAmountInputValue();
+    }
   });
 
   if (categoryInput) {
@@ -2511,11 +4114,9 @@ function bindEvents() {
 
   document.querySelectorAll(".filter-btn").forEach(btn => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
-      btn.classList.add("active");
-
-      currentFilter = btn.dataset.category;
+      currentFilter = btn.dataset.category || "All";
       currentPage = 1;
+      syncFilterMenuState();
       renderExpenses();
 
       closeToolbarMenus();
@@ -2574,9 +4175,7 @@ function bindEvents() {
       searchIconBtn.disabled = true;
     }
 
-    document.querySelectorAll(".filter-btn").forEach(btn => {
-      btn.classList.toggle("active", btn.dataset.category === "All");
-    });
+    syncFilterMenuState();
 
     const sortSelect = document.getElementById("sort-select");
     if (sortSelect) {
@@ -2611,9 +4210,11 @@ function bindEvents() {
 
   editTableBtn.addEventListener("click", async () => {
     if (!isEditMode) {
+      captureEditModeOrder();
       isEditMode = true;
       draftExpenses = cloneExpenses(expenses);
       activeEditCell = null;
+      selectedEditRowIndex = null;
       editTableBtn.textContent = "Save";
       cancelTableBtn.classList.remove("inactive");
       renderExpenses();
@@ -2623,10 +4224,25 @@ function bindEvents() {
     try {
       commitActiveTableCell();
 
+      if (!validateDraftTableEdits()) {
+        renderExpenses();
+
+        showAppToast(
+          "Some edited amount or date values are invalid. Fix the highlighted cells, then try saving again.",
+          "error",
+          null,
+          "Changes were not saved"
+        );
+
+        return;
+      }
+
       await saveDraftChanges();
 
       isEditMode = false;
       activeEditCell = null;
+      selectedEditRowIndex = null;
+      clearEditModeOrder();
       editTableBtn.textContent = "Edit";
       cancelTableBtn.classList.add("inactive");
 
@@ -2646,6 +4262,9 @@ function bindEvents() {
   cancelTableBtn.addEventListener("click", () => {
     draftExpenses = cloneExpenses(expenses);
     isEditMode = false;
+    selectedEditRowIndex = null;
+    activeEditCell = null;
+    clearEditModeOrder();
     editTableBtn.textContent = "Edit";
     cancelTableBtn.classList.add("inactive");
     clearStatus();
@@ -2655,16 +4274,14 @@ function bindEvents() {
 
   expenseSearchInput.addEventListener("input", (e) => {
     pendingSearch = e.target.value.trim().toLowerCase();
+    currentSearch = pendingSearch;
+    currentPage = 1;
 
     if (searchIconBtn) {
       searchIconBtn.disabled = pendingSearch === "";
     }
 
-    if (pendingSearch === "") {
-      currentSearch = "";
-      currentPage = 1;
-      renderExpenses();
-    }
+    renderExpenses();
   });
 
   if (searchIconBtn) {
@@ -2722,20 +4339,21 @@ function bindEvents() {
     }
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      dateError.textContent = "Use format YYYY-MM-DD";
+      dateError.textContent = "Please use a valid date";
       dateInput.classList.add("error");
       syncExpenseDateControl();
       return;
     }
 
-    const date = new Date(`${value}T00:00:00`);
+    if (Number(value.slice(0, 4)) > MAX_VALID_YEAR) {
+      dateError.textContent = `Year cannot be after ${MAX_VALID_YEAR}`;
+      dateInput.classList.add("error");
+      syncExpenseDateControl();
+      return;
+    }
 
-    if (
-      date.getFullYear() !== Number(value.slice(0, 4)) ||
-      date.getMonth() + 1 !== Number(value.slice(5, 7)) ||
-      date.getDate() !== Number(value.slice(8, 10))
-    ) {
-      dateError.textContent = "Please enter a valid calendar date";
+    if (!isValidDate(value, { allowFuture: true })) {
+      dateError.textContent = "Please use a valid date";
       dateInput.classList.add("error");
       syncExpenseDateControl();
       return;
@@ -2761,6 +4379,13 @@ function bindEvents() {
 
   document.addEventListener("pointerdown", (event) => {
     const clickedInsideMenu = event.target.closest(".toolbar-menu, .date-picker, .dropdown, .username-wrapper");
+    const clickedTableCell = event.target.closest("#expense-table td[data-field]");
+
+    if (!clickedTableCell && activeEditCell) {
+      clearActiveTableCellStyles();
+      activeEditCell = null;
+    }
+
     if (!clickedInsideMenu) {
       closeToolbarMenus();
       closeProfileMenu();
@@ -2881,19 +4506,36 @@ function bindEvents() {
   }
 
   if (expenseBody) {
+    expenseBody.addEventListener("pointerdown", handleTablePointerDown, true);
+    expenseBody.addEventListener("mousedown", handleTablePointerDown, true);
+    expenseBody.addEventListener("beforeinput", handleTableBeforeInput);
     expenseBody.addEventListener("focusin", handleTableFocusIn);
     expenseBody.addEventListener("focusout", handleTableFocusOut);
+    expenseBody.addEventListener("keydown", handleMaskedCellKeydown);
     expenseBody.addEventListener("input", handleTableInput);
     expenseBody.addEventListener("change", handleTableChange);
     expenseBody.addEventListener("click", handleTableClick);
   }
 
-  document.addEventListener("focusout", (e) => {
-    const cell = e.target.closest("td[data-field]");
-    if (cell) {
-      cell.classList.remove("editing");
+  document.addEventListener("pointerdown", (event) => {
+    if (!isEditMode) return;
+
+    const clickedEditableCell = event.target.closest?.("#expense-table td[data-field]");
+
+    if (clickedEditableCell && !clickedEditableCell.classList.contains("locked")) {
+      activateEditableCell(clickedEditableCell);
+      return;
     }
-  });
+
+    if (!event.target.closest?.("#expense-table")) {
+      activeEditCell = null;
+      clearActiveTableCellStyles();
+    }
+  }, true);
+
+  // Active table-cell styling is cleared by the pointerdown-outside handler.
+  // Avoid clearing it on focusout because focus timing can remove the border
+  // from a cell that the user is trying to reselect.
 
   window.addEventListener("scroll", handleHeaderFade);
   window.addEventListener("resize", () => {
@@ -2925,6 +4567,7 @@ if (searchIconBtn) {
 }
 
 buildMonthMenuOptions();
+syncFilterMenuState();
 syncSortMenuState();
 setTodayDate();
 syncMonthFilterState();
