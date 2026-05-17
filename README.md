@@ -184,19 +184,7 @@ cd server
 npm install
 ```
 
-Install React frontend dependencies:
-
-```bash
-cd ../client
-npm install
-```
-
-If you are working from the project root and the root also contains a `package.json`, return to the root folder and install root dependencies as well:
-
-```bash
-cd ..
-npm install
-```
+The polished frontend is served by the Express backend, so no extra frontend install step is needed for the main app.
 
 ### 2. Import the database export
 
@@ -206,7 +194,12 @@ From the project root, import the database setup file into MySQL:
 mysql -u root -p < database/expense_tracker.sql
 ```
 
-Enter your MySQL password when prompted.
+Enter your MySQL admin password when prompted. The import script creates a project database user for the app:
+
+```env
+DB_USER=spendflow_app
+DB_PASSWORD=spendflow123
+```
 
 If the `mysql` command is not recognised, confirm where MySQL is installed on your machine:
 
@@ -236,34 +229,34 @@ You can also import `database/expense_tracker.sql` manually using a database too
 
 ### 3. Check the database connection settings
 
-Copy `server/.env.example` to `server/.env` and update the MySQL password and JWT secret.
+Copy `server/.env.example` to `server/.env`. The default local app database credentials are already set to `spendflow_app` / `spendflow123`.
 
-### 4. Start the backend server
+### 4. Start the integrated app
 
 ```bash
 cd server
 npm start
 ```
 
-The backend should run on:
+Open the app in your browser:
 
 ```text
 http://localhost:3000
 ```
 
-### 5. Run the current dashboard interface
+The same Express server serves both the frontend files and the API routes.
 
-The current polished dashboard interface is in the root files. Open `index.html` using a local development server such as VS Code Live Server.
+### 5. Optional: Run the current dashboard interface with Live Server
 
-The current frontend expects the backend API base URL to be:
+You can still open the root `index.html` using VS Code Live Server. When the frontend is running from Live Server, it automatically sends API requests to:
 
-```js
-const API_BASE = "http://localhost:3000";
+```text
+http://localhost:3000
 ```
 
 ### 6. Start the React frontend
 
-The React frontend is available for ongoing refactoring work:
+The React frontend is available for ongoing refactoring work, but it is not the main integrated dashboard yet:
 
 ```bash
 cd client
@@ -276,11 +269,15 @@ The frontend communicates with the backend using these REST endpoints:
 
 - `POST /auth/register` – create a user account with a bcrypt-hashed password
 - `POST /auth/login` – verify the password and return a JWT
+- `POST /auth/logout` – record a logout event for the logged-in user
 - `GET /expenses` – retrieve the logged-in user's expenses
 - `POST /expenses` – create an expense for the logged-in user
 - `PUT /expenses/:id` – update one of the logged-in user's expenses
 - `DELETE /expenses/:id` – delete one of the logged-in user's expenses
 - `GET /admin/users` – admin-only list of users
+- `POST /admin/users` – admin-only creation of a user account
+- `PUT /admin/users/:id` – admin-only update of user profile, role, or password
+- `DELETE /admin/users/:id` – admin-only deletion of a user account
 - `GET /admin/activity` – admin-only user activity history
 
 ## Security Note

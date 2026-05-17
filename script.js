@@ -1,7 +1,11 @@
 let expenses = [];
 let draftExpenses = [];
 
-const API_BASE = "http://localhost:3000";
+const API_BASE =
+  window.SPENDFLOW_API_BASE ||
+  (["5500", "5173"].includes(window.location.port) || window.location.protocol === "file:"
+    ? "http://localhost:3000"
+    : window.location.origin);
 const TOKEN_STORAGE_KEY = "spendflowToken";
 const USER_STORAGE_KEY = "spendflowUser";
 

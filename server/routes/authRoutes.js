@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 
 const pool = require("../db");
+const { authenticateToken } = require("../middleware/authMiddleware");
 const logActivity = require("../utils/logActivity");
 
 const router = express.Router();
@@ -132,6 +133,17 @@ router.post("/login", async (req, res) => {
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ message: "Failed to login" });
+  }
+});
+
+router.post("/logout", authenticateToken, async (req, res) => {
+  try {
+    await logActivity(req.user.id, "LOGOUT", "User logged out");
+
+    res.json({ message: "Logout recorded successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ message: "Failed to record logout" });
   }
 });
 

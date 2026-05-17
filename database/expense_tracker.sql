@@ -5,6 +5,12 @@ DROP DATABASE IF EXISTS expense_tracker;
 CREATE DATABASE expense_tracker;
 USE expense_tracker;
 
+-- App database user.
+-- The backend uses this account instead of MySQL root after this script is imported.
+CREATE USER IF NOT EXISTS 'spendflow_app'@'localhost' IDENTIFIED BY 'spendflow123';
+GRANT ALL PRIVILEGES ON expense_tracker.* TO 'spendflow_app'@'localhost';
+FLUSH PRIVILEGES;
+
 -- Users are used for registration and login.
 -- password_hash stores the bcrypt-hashed password, never the plain password.
 CREATE TABLE users (
