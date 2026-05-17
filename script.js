@@ -2,7 +2,8 @@ let expenses = [];
 let draftExpenses = [];
 
 const API_BASE = "http://localhost:3000";
-const AUTH_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MywiZW1haWwiOiJtYXJzaTJAZXhhbXBsZS5jb20iLCJyb2xlIjoidXNlciIsImlhdCI6MTc3OTAwMjg4NCwiZXhwIjoxNzc5MDEwMDg0fQ.2VXcOe1KSa0j0SiTP5SB7Rk-QEvmkgJ058A4z0a01vY";
+const TOKEN_STORAGE_KEY = "spendflowToken";
+const USER_STORAGE_KEY = "spendflowUser";
 
 let categoryChart = null;
 let pieChart = null;
@@ -23,7 +24,9 @@ let tableActionHighlightTimeoutId = null;
 let activeEditCell = null;
 let selectedEditRowIndex = null;
 let editModeOrderIds = [];
-let isLoggedIn = true;
+let authToken = localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+let currentUser = getStoredUser();
+let isLoggedIn = Boolean(authToken);
 
 // DOM elements
 const expenseNameInput = document.getElementById("expenseName");
@@ -50,6 +53,14 @@ const nextPageBtn = document.getElementById("next-page-btn");
 const pageIndicator = document.getElementById("page-indicator");
 const expenseBody = document.getElementById("expense-body");
 const statusMessage = document.getElementById("app-status");
+const heroGreeting = document.querySelector(".hero-copy h2");
+let loginPanel = document.getElementById("login-panel");
+let loginForm = document.getElementById("login-form");
+let loginIdentifierInput = document.getElementById("login-identifier");
+let loginPasswordInput = document.getElementById("login-password");
+let loginIdentifierError = document.getElementById("login-identifier-error");
+let loginPasswordError = document.getElementById("login-password-error");
+let loginSubmitBtn = document.getElementById("login-submit-btn");
 const brandHome = document.getElementById("brand-home");
 const usernameWrapper = document.querySelector(".username-wrapper");
 const logoutBtn = document.getElementById("logout-btn");
@@ -2501,10 +2512,7 @@ function renderLoadFailureState() {
 async function createExpenseInDatabase(expense) {
   const response = await fetch(`${API_BASE}/expenses`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AUTH_TOKEN}`
-    },
+    headers: getAuthHeaders(true),
     body: JSON.stringify(buildExpensePayload(expense))
   });
 
@@ -2518,10 +2526,7 @@ async function createExpenseInDatabase(expense) {
 async function updateExpenseInDatabase(expense) {
   const response = await fetch(`${API_BASE}/expenses/${expense.id}`, {
     method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${AUTH_TOKEN}`
-    },
+    headers: getAuthHeaders(true),
     body: JSON.stringify(buildExpensePayload(expense))
   });
 
@@ -2537,9 +2542,7 @@ async function updateExpenseInDatabase(expense) {
 async function deleteExpenseFromDatabase(id) {
   const response = await fetch(`${API_BASE}/expenses/${id}`, {
     method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${AUTH_TOKEN}`
-    }
+    headers: getAuthHeaders()
   });
 
   if (!response.ok) {
@@ -2595,12 +2598,25 @@ async function saveDraftChanges() {
 }
 
 async function loadExpenses() {
+  if (!authToken) {
+    expenses = [];
+    draftExpenses = [];
+    renderExpenses();
+    return;
+  }
+
   try {
     const response = await fetch(`${API_BASE}/expenses`, {
-      headers: {
-        Authorization: `Bearer ${AUTH_TOKEN}`
-      }
+      headers: getAuthHeaders()
     });
+
+    if (response.status === 401 || response.status === 403) {
+      clearSessionData();
+      renderAuthState();
+      renderExpenses();
+      showAppToast("Your session expired. Please log in again.", "error");
+      return;
+    }
 
     if (!response.ok) {
       throw new Error("Failed to load expenses");
@@ -3150,6 +3166,12 @@ function validateAmountLive() {
 
 // ---------- Actions ----------
 async function addExpense() {
+  if (!isLoggedIn || !authToken) {
+    focusLoginPanel();
+    showAppToast("Please log in to add expenses.", "error");
+    return;
+  }
+
   if (isEditMode) {
     showAddExpenseModeError("Save or cancel your table edits before adding a new expense.");
     return;
@@ -3550,7 +3572,262 @@ function resetDashboardView() {
   });
 }
 
+
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY) || "null");
+  } catch (error) {
+    localStorage.removeItem(USER_STORAGE_KEY);
+    return null;
+  }
+}
+
+function cacheLoginElements() {
+  loginPanel = document.getElementById("login-panel");
+  loginForm = document.getElementById("login-form");
+  loginIdentifierInput = document.getElementById("login-identifier");
+  loginPasswordInput = document.getElementById("login-password");
+  loginIdentifierError = document.getElementById("login-identifier-error");
+  loginPasswordError = document.getElementById("login-password-error");
+  loginSubmitBtn = document.getElementById("login-submit-btn");
+}
+
+function ensureLoginPanel() {
+  if (!loginPanel) {
+    const panel = document.createElement("div");
+    panel.id = "login-panel";
+    panel.className = "header-login-panel";
+
+    panel.innerHTML = `
+      <form id="login-form" class="header-login-form" novalidate>
+        <div class="field-group login-field-group">
+          <label class="sr-only" for="login-identifier">Email or username</label>
+          <input
+            id="login-identifier"
+            type="text"
+            placeholder="Email or username"
+            autocomplete="username"
+          >
+          <p id="login-identifier-error" class="error-text"></p>
+        </div>
+
+        <div class="field-group login-field-group">
+          <label class="sr-only" for="login-password">Password</label>
+          <input
+            id="login-password"
+            type="password"
+            placeholder="Password"
+            autocomplete="current-password"
+          >
+          <p id="login-password-error" class="error-text"></p>
+        </div>
+
+        <button id="login-submit-btn" class="login-submit-btn" type="submit">
+          Log in
+        </button>
+      </form>
+    `;
+
+    const headerRight = document.querySelector(".header-right");
+    const profile = document.querySelector(".profile");
+
+    if (headerRight && profile) {
+      headerRight.insertBefore(panel, profile);
+    } else {
+      headerRight?.appendChild(panel);
+    }
+  }
+
+  cacheLoginElements();
+}
+
+function getDisplayNameFromLoginValue(value) {
+  const cleanValue = String(value || "").trim();
+
+  if (!cleanValue) return "";
+
+  if (cleanValue.includes("@")) {
+    return cleanValue.split("@")[0];
+  }
+
+  return cleanValue;
+}
+
+function getCurrentDisplayName() {
+  return (
+    currentUser?.displayName ||
+    currentUser?.username ||
+    getDisplayNameFromLoginValue(currentUser?.email) ||
+    currentUser?.name ||
+    "Marsi"
+  );
+}
+
+function updateGreetingText() {
+  if (!heroGreeting) return;
+
+  const displayName = isLoggedIn ? getCurrentDisplayName() : "there";
+  heroGreeting.textContent = `Hi ${displayName}, ready to track today’s spending?`;
+}
+
+function setLoginFieldError(input, errorElement, message) {
+  input?.classList.add("error");
+
+  if (errorElement) {
+    errorElement.textContent = message;
+  }
+}
+
+function clearLoginErrors() {
+  loginIdentifierInput?.classList.remove("error");
+  loginPasswordInput?.classList.remove("error");
+
+  if (loginIdentifierError) loginIdentifierError.textContent = "";
+  if (loginPasswordError) loginPasswordError.textContent = "";
+}
+
+function isValidEmailFormat(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function validateLoginForm() {
+  const loginValue = loginIdentifierInput?.value.trim() || "";
+  const passwordValue = loginPasswordInput?.value || "";
+  let hasError = false;
+
+  clearLoginErrors();
+
+  if (!loginValue) {
+    setLoginFieldError(loginIdentifierInput, loginIdentifierError, "Email or username");
+    hasError = true;
+  } else if (loginValue.includes("@") && !isValidEmailFormat(loginValue)) {
+    setLoginFieldError(loginIdentifierInput, loginIdentifierError, "Please enter a valid email");
+    hasError = true;
+  }
+
+  if (!passwordValue) {
+    setLoginFieldError(loginPasswordInput, loginPasswordError, "Password");
+    hasError = true;
+  }
+
+  return {
+    isValid: !hasError,
+    loginValue,
+    passwordValue
+  };
+}
+
+function focusLoginPanel() {
+  ensureLoginPanel();
+  renderAuthState();
+
+  setTimeout(() => {
+    loginIdentifierInput?.focus({ preventScroll: true });
+  }, 150);
+}
+
+function clearSessionData() {
+  authToken = "";
+  currentUser = null;
+  isLoggedIn = false;
+
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(USER_STORAGE_KEY);
+}
+
+function getAuthHeaders(includeJson = false) {
+  const headers = {};
+
+  if (includeJson) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
+  return headers;
+}
+
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+
+  const validation = validateLoginForm();
+
+  if (!validation.isValid) return;
+
+  if (loginSubmitBtn) {
+    loginSubmitBtn.disabled = true;
+    loginSubmitBtn.textContent = "Logging in...";
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        login: validation.loginValue,
+        password: validation.passwordValue
+      })
+    });
+
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.message || "Invalid email/username or password");
+    }
+
+    const displayName =
+      getDisplayNameFromLoginValue(validation.loginValue) ||
+      data.user?.username ||
+      getDisplayNameFromLoginValue(data.user?.email) ||
+      data.user?.name ||
+      "User";
+
+    authToken = data.token;
+    currentUser = {
+      ...(data.user || {}),
+      displayName
+    };
+    isLoggedIn = Boolean(authToken);
+
+    localStorage.setItem(TOKEN_STORAGE_KEY, authToken);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(currentUser));
+
+    clearLoginErrors();
+
+    if (loginForm) {
+      loginForm.reset();
+    }
+
+    closeProfileMenu();
+    clearStatus();
+    renderAuthState();
+
+    await loadExpenses();
+
+    showAppToast("Logged in successfully.", "success");
+  } catch (error) {
+    console.error("Login failed:", error);
+
+    const message = error.message || "Invalid email/username or password";
+    loginIdentifierInput?.classList.add("error");
+    setLoginFieldError(loginPasswordInput, loginPasswordError, message);
+    showAppToast(message, "error");
+  } finally {
+    if (loginSubmitBtn) {
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = "Log in";
+    }
+  }
+}
+
+
 function renderAuthState() {
+  ensureLoginPanel();
+
   const profile = document.querySelector(".profile");
   const dropdown = document.querySelector(".dropdown");
   const username = document.querySelector(".username");
@@ -3558,6 +3835,14 @@ function renderAuthState() {
   const profilePic = document.querySelector(".profile-pic");
 
   if (!profile || !usernameWrapper) return;
+
+  updateGreetingText();
+
+  if (loginPanel) {
+    loginPanel.hidden = isLoggedIn;
+  }
+
+  profile.hidden = !isLoggedIn;
 
   if (isLoggedIn) {
     profile.classList.remove("logged-out");
@@ -3569,7 +3854,7 @@ function renderAuthState() {
     usernameWrapper.setAttribute("role", "button");
     usernameWrapper.setAttribute("tabindex", "0");
 
-    if (username) username.textContent = "Marsi";
+    if (username) username.textContent = getCurrentDisplayName();
     if (arrow) arrow.hidden = false;
     if (dropdown) dropdown.hidden = false;
     if (profilePic) profilePic.hidden = false;
@@ -3577,19 +3862,8 @@ function renderAuthState() {
     return;
   }
 
+  closeProfileMenu();
   profile.classList.add("logged-out");
-  profile.classList.remove("menu-open");
-
-  usernameWrapper.classList.remove("active");
-  usernameWrapper.classList.add("login-header-btn");
-  usernameWrapper.setAttribute("aria-expanded", "false");
-  usernameWrapper.setAttribute("role", "button");
-  usernameWrapper.setAttribute("tabindex", "0");
-
-  if (username) username.textContent = "Login";
-  if (arrow) arrow.hidden = true;
-  if (dropdown) dropdown.hidden = true;
-  if (profilePic) profilePic.hidden = true;
 }
 
 function logout(event) {
@@ -3598,12 +3872,18 @@ function logout(event) {
     event.stopPropagation();
   }
 
-  isLoggedIn = false;
+  clearSessionData();
+
+  expenses = [];
+  draftExpenses = [];
+  currentPage = 1;
+  newlyAddedExpenseId = null;
 
   closeProfileMenu();
   clearStatus();
   renderAuthState();
-  showAppToast("Logged out successfully.");
+  renderExpenses();
+  showAppToast("Logged out successfully.", "success");
 }
 
 // ---------- Table event delegation ----------
@@ -4053,6 +4333,16 @@ function handleTableClick(event) {
 
 // ---------- Static event binding ----------
 function bindEvents() {
+  ensureLoginPanel();
+
+  if (loginForm) {
+    loginForm.addEventListener("submit", handleLoginSubmit);
+  }
+
+  [loginIdentifierInput, loginPasswordInput].forEach(input => {
+    input?.addEventListener("input", clearLoginErrors);
+  });
+
   addBtn.addEventListener("click", addExpense);
 
   expenseNameInput.addEventListener("input", () => {
@@ -4475,7 +4765,7 @@ function bindEvents() {
       event.stopPropagation();
 
       if (!isLoggedIn) {
-        showAppToast("Login flow is not connected in this preview.");
+        focusLoginPanel();
         return;
       }
 
@@ -4557,6 +4847,7 @@ function handleHeaderFade() {
 }
 
 // ---------- Init ----------
+ensureLoginPanel();
 bindEvents();
 handleHeaderFade();
 cancelTableBtn.classList.add("inactive");
@@ -4571,5 +4862,10 @@ syncFilterMenuState();
 syncSortMenuState();
 setTodayDate();
 syncMonthFilterState();
-loadExpenses();
 renderAuthState();
+
+if (isLoggedIn) {
+  loadExpenses();
+} else {
+  renderExpenses();
+}

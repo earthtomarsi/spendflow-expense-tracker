@@ -130,7 +130,10 @@ letter-spacing: 0.82px;
 
 .header-right {
 display: flex;
-align-items: center;
+align-items: flex-start;
+justify-content: flex-end;
+gap: 10px;
+margin-left: auto;
 }
 
 .profile {
@@ -222,6 +225,11 @@ transition: all 0.15s ease;
 opacity: 1;
 visibility: visible;
 transform: translateY(0);
+}
+
+.profile.logged-out,
+.profile[hidden] {
+display: none !important;
 }
 
 .profile.logged-out .dropdown {
@@ -455,6 +463,105 @@ font-weight: 300;
 display: inline-flex;
 align-items: center;
 justify-content: center;
+}
+
+
+/* ---------- Header login form ---------- */
+
+.header-login-panel {
+display: flex;
+align-items: flex-start;
+justify-content: flex-end;
+margin-left: auto;
+max-width: 100%;
+}
+
+.header-login-panel[hidden] {
+display: none !important;
+}
+
+.header-login-form {
+display: flex;
+align-items: flex-start;
+justify-content: flex-end;
+gap: 6px;
+margin: 0;
+}
+
+.header-login-form .login-field-group {
+width: 172px;
+min-width: 0;
+gap: 4px;
+}
+
+.header-login-form .login-password-group,
+.header-login-form #login-password {
+width: 166px;
+}
+
+.header-login-form input {
+height: 40px;
+min-width: 0;
+padding: 0 12px;
+font-size: 14px;
+}
+
+.header-login-form input.error {
+border-color: #e74c3c !important;
+}
+
+.header-login-form .error-text {
+min-height: 14px;
+line-height: 1.25;
+}
+
+.login-submit-btn {
+height: 40px;
+min-width: 86px;
+padding: 0 18px;
+display: inline-flex;
+align-items: center;
+justify-content: center;
+background: var(--gradient-green);
+color: #ffffff;
+box-shadow: 0 10px 24px rgba(72, 221, 182, 0.22);
+font-size: 14px;
+font-weight: 500;
+white-space: nowrap;
+flex: 0 0 auto;
+}
+
+.login-submit-btn:hover {
+background: var(--gradient-green-hover);
+box-shadow: 0 14px 34px rgba(72, 221, 182, 0.32);
+}
+
+.login-submit-btn:disabled {
+cursor: not-allowed;
+opacity: 0.72;
+transform: none;
+box-shadow: 0 8px 18px rgba(72, 221, 182, 0.16);
+}
+
+@media (max-width: 1100px) {
+.header-full {
+    align-items: flex-start;
+    gap: 18px;
+}
+
+.header-login-form {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.header-login-form .login-field-group {
+    width: min(172px, 42vw);
+}
+
+.header-login-form .login-password-group,
+.header-login-form #login-password {
+    width: min(166px, 36vw);
+}
 }
 
 /* ---------- Hero / Add Expense ---------- */

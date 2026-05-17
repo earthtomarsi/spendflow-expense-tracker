@@ -10,6 +10,7 @@ USE expense_tracker;
 CREATE TABLE users (
   id INT NOT NULL AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL,
+  username VARCHAR(50) NOT NULL UNIQUE,
   email VARCHAR(255) NOT NULL UNIQUE,
   password_hash VARCHAR(255) NOT NULL,
   role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
@@ -53,9 +54,9 @@ CREATE TABLE user_activity (
 
 -- Demo users.
 -- Password for both users is: password123
-INSERT INTO users (id, name, email, password_hash, role) VALUES
-(1, 'Marsi', 'marsi@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'admin'),
-(2, 'Demo User', 'demo@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'user');
+INSERT INTO users (id, name, username, email, password_hash, role) VALUES
+(1, 'Marsi', 'marsi', 'marsi@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'admin'),
+(2, 'Demo User', 'demo', 'demo@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'user');
 
 -- Existing demo expenses are assigned to the admin demo user.
 INSERT INTO expenses

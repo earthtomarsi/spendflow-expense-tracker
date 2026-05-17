@@ -9,31 +9,41 @@ const router = express.Router();
 
 router.post("/register", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, username, email, password } = req.body;
 
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email and password are required" });
+    const cleanName = String(name || "").trim();
+    const cleanUsername = String(username || "").trim().toLowerCase();
+    const cleanEmail = String(email || "").trim().toLowerCase();
+
+    if (!cleanName || !cleanUsername || !cleanEmail || !password) {
+      return res.status(400).json({
+        message: "Name, username, email and password are required"
+      });
     }
 
     if (password.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
+      return res.status(400).json({
+        message: "Password must be at least 6 characters"
+      });
     }
 
     const [existingUsers] = await pool.query(
-      "SELECT id FROM users WHERE email = ?",
-      [email]
+      "SELECT id FROM users WHERE email = ? OR username = ?",
+      [cleanEmail, cleanUsername]
     );
 
     if (existingUsers.length > 0) {
-      return res.status(409).json({ message: "Email is already registered" });
+      return res.status(409).json({
+        message: "Email or username is already registered"
+      });
     }
 
     // Store only the bcrypt hash so the plain password is never saved.
     const passwordHash = await bcrypt.hash(password, 10);
 
     const [result] = await pool.query(
-      "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-      [name.trim(), email.trim().toLowerCase(), passwordHash]
+      "INSERT INTO users (name, username, email, password_hash) VALUES (?, ?, ?, ?)",
+      [cleanName, cleanUsername, cleanEmail, passwordHash]
     );
 
     await logActivity(result.insertId, "REGISTER", "User registered a new account");
@@ -42,8 +52,9 @@ router.post("/register", async (req, res) => {
       message: "User registered successfully",
       user: {
         id: result.insertId,
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
+        name: cleanName,
+        username: cleanUsername,
+        email: cleanEmail,
         role: "user"
       }
     });
@@ -55,32 +66,49 @@ router.post("/register", async (req, res) => {
 
 router.post("/login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // The frontend sends "login" for either email or username.
+    // The fallback to req.body.email keeps older frontend requests from breaking.
+    const loginInput = req.body.login ?? req.body.email ?? "";
+    const { password } = req.body;
 
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email and password are required" });
+    const loginValue = String(loginInput || "").trim().toLowerCase();
+
+    if (!loginValue || !password) {
+      return res.status(400).json({
+        message: "Email/username and password are required"
+      });
     }
 
     const [users] = await pool.query(
-      "SELECT id, name, email, password_hash, role FROM users WHERE email = ?",
-      [email.trim().toLowerCase()]
+      `
+      SELECT id, name, username, email, password_hash, role
+      FROM users
+      WHERE email = ? OR username = ?
+      LIMIT 1
+      `,
+      [loginValue, loginValue]
     );
 
     if (users.length === 0) {
-      return res.status(401).json({ message: "Invalid email or password" });
+      return res.status(401).json({
+        message: "Invalid email/username or password"
+      });
     }
 
     const user = users[0];
     const passwordMatches = await bcrypt.compare(password, user.password_hash);
 
     if (!passwordMatches) {
-      return res.status(401).json({ message: "Invalid email or password" });
+      return res.status(401).json({
+        message: "Invalid email/username or password"
+      });
     }
 
     // The frontend sends this token in the Authorization header for protected routes.
     const token = jwt.sign(
       {
         id: user.id,
+        username: user.username,
         email: user.email,
         role: user.role
       },
@@ -96,6 +124,7 @@ router.post("/login", async (req, res) => {
       user: {
         id: user.id,
         name: user.name,
+        username: user.username,
         email: user.email,
         role: user.role
       }
