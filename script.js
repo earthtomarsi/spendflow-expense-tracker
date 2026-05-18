@@ -2832,7 +2832,7 @@ function applyRowTooltips(row, expense) {
   const dateTooltip = expense.dateError
     ? expense.dateError
     : formatDateDisplay(expense.date) || "";
-  const descriptionTooltip = expense.description || "";
+  const descriptionTooltip = expense.description || "No description";
 
   if (titleCell) titleCell.title = titleTooltip;
   if (titleText) titleText.title = titleTooltip;
@@ -2956,7 +2956,7 @@ function createExpenseRow(expense, index) {
     </td>
 
     <td
-      class="editable description-cell ${lockedClass}"
+      class="editable description-cell ${lockedClass} ${expense.description ? "" : "empty-description"}"
       data-field="description"
       data-index="${index}"
       contenteditable="${editableValue}"
@@ -2988,7 +2988,9 @@ function createExpenseRow(expense, index) {
           aria-label="Delete expense"
           title="Delete expense"
         >
-          ×
+          <svg viewBox="0 0 448 512" aria-hidden="true">
+            <path d="M135.2 17.7C140.6 6.8 151.7 0 163.8 0h120.4c12.1 0 23.2 6.8 28.6 17.7L320 32h96c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 96 0 81.7 0 64s14.3-32 32-32h96l7.2-14.3zM32 128h384l-21.2 339c-1.6 25.3-22.6 45-47.9 45H101.1c-25.3 0-46.3-19.7-47.9-45L32 128zm96 64c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16zm96 0c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16zm96 0c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16z"></path>
+          </svg>
         </button>
       </div>
     </td>
@@ -3751,11 +3753,7 @@ async function addExpense() {
 
   syncExpenseDateControl();
 
-  if (!description) {
-    descError.textContent = "Please enter a description";
-    descInput.classList.add("error");
-    hasError = true;
-  } else if (description.length > DESCRIPTION_LIMIT) {
+  if (description.length > DESCRIPTION_LIMIT) {
     descError.textContent = "Max 70 characters";
     descInput.classList.add("error");
     hasError = true;
@@ -4525,7 +4523,6 @@ function ensureAdminPanel() {
           <h3>Admin account management</h3>
           <p>Edit existing user accounts and review login, logout, and CRUD activity.</p>
         </div>
-        <button id="admin-refresh-btn" class="admin-secondary-btn" type="button">Refresh</button>
       </div>
 
       <div class="admin-profile-grid">
@@ -4642,7 +4639,6 @@ function ensureAdminPanel() {
   if (!panel.dataset.bound) {
     panel.dataset.bound = "true";
 
-    panel.querySelector("#admin-refresh-btn")?.addEventListener("click", handleAdminRefreshClick);
     panel.querySelector("#admin-edit-users-btn")?.addEventListener("click", handleAdminEditUsersClick);
     panel.querySelector("#admin-cancel-users-btn")?.addEventListener("click", cancelAdminUserEdits);
     panel.querySelector("#admin-user-search")?.addEventListener("input", handleAdminUserSearchInput);
@@ -4858,7 +4854,9 @@ function renderAdminUsers() {
               title="${deleteLabel}"
               ${isCurrentUser ? "disabled" : ""}
             >
-              ×
+              <svg viewBox="0 0 448 512" aria-hidden="true">
+                <path d="M135.2 17.7C140.6 6.8 151.7 0 163.8 0h120.4c12.1 0 23.2 6.8 28.6 17.7L320 32h96c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 96 0 81.7 0 64s14.3-32 32-32h96l7.2-14.3zM32 128h384l-21.2 339c-1.6 25.3-22.6 45-47.9 45H101.1c-25.3 0-46.3-19.7-47.9-45L32 128zm96 64c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16zm96 0c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16zm96 0c-8.8 0-16 7.2-16 16v224c0 8.8 7.2 16 16 16s16-7.2 16-16V208c0-8.8-7.2-16-16-16z"></path>
+              </svg>
             </button>
           </div>
         </td>

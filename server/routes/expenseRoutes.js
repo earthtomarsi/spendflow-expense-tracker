@@ -19,9 +19,9 @@ function mapExpenseRow(row) {
   };
 }
 
-function validateExpenseInput({ expenseName, category, amount, date, description }) {
-  if (!expenseName || !category || amount === undefined || !date || description === undefined) {
-    return "All fields are required";
+function validateExpenseInput({ expenseName, category, amount, date }) {
+  if (!expenseName || !category || amount === undefined || !date) {
+    return "Expense name, category, amount and date are required";
   }
 
   const numericAmount = Number(amount);
@@ -70,6 +70,7 @@ router.post("/", authenticateToken, async (req, res) => {
     }
 
     const numericAmount = Number(amount);
+    const cleanDescription = String(description ?? "").trim();
 
     // Always use req.user.id from the JWT instead of trusting frontend user_id.
     const [result] = await pool.query(
@@ -77,7 +78,7 @@ router.post("/", authenticateToken, async (req, res) => {
       INSERT INTO expenses (user_id, title, category, amount, expense_date, description)
       VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [req.user.id, expenseName.trim(), category, numericAmount, date, description.trim()]
+      [req.user.id, expenseName.trim(), category, numericAmount, date, cleanDescription]
     );
 
     await logActivity(req.user.id, "CREATE_EXPENSE", `Created expense: ${expenseName}`);
@@ -88,7 +89,7 @@ router.post("/", authenticateToken, async (req, res) => {
       category,
       amount: numericAmount,
       date,
-      description: description.trim()
+      description: cleanDescription
     });
   } catch (error) {
     console.error("Error creating expense:", error);
@@ -107,6 +108,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
     }
 
     const numericAmount = Number(amount);
+    const cleanDescription = String(description ?? "").trim();
 
     const [result] = await pool.query(
       `
@@ -114,7 +116,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       SET title = ?, category = ?, amount = ?, expense_date = ?, description = ?
       WHERE id = ? AND user_id = ?
       `,
-      [expenseName.trim(), category, numericAmount, date, description.trim(), id, req.user.id]
+      [expenseName.trim(), category, numericAmount, date, cleanDescription, id, req.user.id]
     );
 
     if (result.affectedRows === 0) {
@@ -129,7 +131,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       category,
       amount: numericAmount,
       date,
-      description: description.trim()
+      description: cleanDescription
     });
   } catch (error) {
     console.error("Error updating expense:", error);

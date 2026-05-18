@@ -2136,7 +2136,16 @@ flex: 0 0 212px;
 width: 212px;
 min-width: 212px;
 max-width: 212px;
-justify-content: space-between;
+justify-content: flex-start;
+}
+
+#month-menu-label {
+flex: 1 1 auto;
+min-width: 0;
+overflow: hidden;
+text-align: left;
+white-space: nowrap;
+text-overflow: ellipsis;
 }
 
 .toolbar-button:hover,
@@ -2563,6 +2572,13 @@ line-height: var(--table-surface-height);
 overflow: hidden;
 white-space: nowrap;
 text-overflow: ellipsis;
+}
+
+#expense-table td.description-cell.empty-description .cell-text::before {
+content: "No description";
+color: #a4adb8;
+font-style: italic;
+font-weight: 400;
 }
 
 #expense-table td.description-cell:not(.locked).active-edit-cell,
@@ -3002,9 +3018,17 @@ justify-content: center !important;
 .row-icon-btn svg {
 width: 16.5px !important;
 height: 16.5px !important;
+fill: none;
+stroke: currentColor;
+stroke-width: 2.1;
+stroke-linecap: round;
+stroke-linejoin: round;
+display: block;
+}
+
+.edit-row-btn svg {
 fill: currentColor;
 stroke: none;
-display: block;
 }
 
 .edit-row-btn svg {
@@ -3012,10 +3036,14 @@ transform: translate(0.5px, -0.5px);
 }
 
 .delete-btn {
-padding-bottom: 2px !important;
-font-size: 22px !important;
-line-height: 1 !important;
-font-weight: 400;
+padding-bottom: 0 !important;
+}
+
+.delete-btn svg {
+width: 15px !important;
+height: 15px !important;
+fill: currentColor;
+stroke: none;
 }
 
 .row-icon-btn:hover {

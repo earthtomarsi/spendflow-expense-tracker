@@ -149,7 +149,7 @@
 
               <div class="field-group description-group">
                 <label class="sr-only" for="description">Expense description</label>
-                <input id="description" maxlength="70" placeholder="Description">
+                <input id="description" maxlength="70" placeholder="(optional)">
                 <div class="desc-info">
                   <p id="desc-error" class="error-text"></p>
                   <small id="desc-counter">0/70</small>
@@ -237,7 +237,6 @@
 
           <details id="month-menu" class="toolbar-menu month-menu">
             <summary class="toolbar-button month-menu-trigger">
-              <span id="month-menu-label">Month</span>
               <span class="toolbar-button-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <rect x="3" y="5" width="18" height="16" rx="2"></rect>
@@ -246,6 +245,7 @@
                   <path d="M3 10h18"></path>
                 </svg>
               </span>
+              <span id="month-menu-label">Month</span>
             </summary>
             <div id="month-menu-panel" class="toolbar-menu-panel month-menu-panel"></div>
           </details>
