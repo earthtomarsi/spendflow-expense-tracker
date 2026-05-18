@@ -5365,25 +5365,28 @@ async function handleUserProfileClick(event) {
 
   if (!isAdminUser()) return;
 
+  if (isAdminPanelOpen) {
+    closeProfileMenu();
+    return;
+  }
+
   if (!(await confirmDiscardUnsavedChanges())) return;
 
   discardUnsavedEditableTableChanges();
 
-  isAdminPanelOpen = !isAdminPanelOpen;
+  isAdminPanelOpen = true;
   renderAdminPanelState();
   renderPageSections();
   closeProfileMenu();
 
-  if (isAdminPanelOpen) {
-    isAdminEditMode = false;
-    selectedAdminUserIndex = null;
-    adminUsersPage = 1;
-    await loadAdminProfileData();
-    document.getElementById("admin-profile-panel")?.scrollIntoView({
-      behavior: "smooth",
-      block: "start"
-    });
-  }
+  isAdminEditMode = false;
+  selectedAdminUserIndex = null;
+  adminUsersPage = 1;
+  await loadAdminProfileData();
+  document.getElementById("admin-profile-panel")?.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
 }
 
 async function handleLoginSubmit(event) {
