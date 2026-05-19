@@ -8,6 +8,17 @@ const logActivity = require("../utils/logActivity");
 
 const router = express.Router();
 
+function formatUser(user) {
+  return {
+    id: user.id,
+    userID: user.id,
+    name: user.name,
+    username: user.username,
+    email: user.email,
+    role: user.role
+  };
+}
+
 router.post("/register", async (req, res) => {
   try {
     const { name, username, email, password } = req.body;
@@ -51,13 +62,13 @@ router.post("/register", async (req, res) => {
 
     res.status(201).json({
       message: "User registered successfully",
-      user: {
+      user: formatUser({
         id: result.insertId,
         name: cleanName,
         username: cleanUsername,
         email: cleanEmail,
         role: "user"
-      }
+      })
     });
   } catch (error) {
     console.error("Register error:", error);
@@ -109,6 +120,7 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       {
         id: user.id,
+        userID: user.id,
         username: user.username,
         email: user.email,
         role: user.role
@@ -122,13 +134,7 @@ router.post("/login", async (req, res) => {
     res.json({
       message: "Login successful",
       token,
-      user: {
-        id: user.id,
-        name: user.name,
-        username: user.username,
-        email: user.email,
-        role: user.role
-      }
+      user: formatUser(user)
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -143,6 +149,24 @@ router.post("/logout", authenticateToken, async (req, res) => {
   } catch (error) {
     console.error("Logout error:", error);
     res.status(500).json({ message: "Failed to logout" });
+  }
+});
+
+router.get("/me", authenticateToken, async (req, res) => {
+  try {
+    const [users] = await pool.query(
+      "SELECT id, name, username, email, role FROM users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(formatUser(users[0]));
+  } catch (error) {
+    console.error("Fetch current user error:", error);
+    res.status(500).json({ message: "Failed to fetch current user" });
   }
 });
 

@@ -290,6 +290,13 @@ or, for Homebrew installations:
 
 You can also import `database/expense_tracker.sql` manually using a database tool such as MySQL Workbench.
 
+The seed data creates two demo accounts:
+
+| Role | Username | Email | Password |
+| --- | --- | --- | --- |
+| Admin | `admin` | `admin@example.com` | `password123` |
+| User | `marsi` | `marsi@example.com` | `password123` |
+
 ### 3. Check the Database Connection Settings
 
 Copy `server/.env.example` to `server/.env`. The default local app database credentials are already set to `spendflow_app` / `spendflow123`.
@@ -329,17 +336,23 @@ http://localhost:5173
 The frontend communicates with the backend using these REST endpoints:
 
 - `POST /auth/register` - create a user account with a bcrypt-hashed password
-- `POST /auth/login` - verify the password and return a JWT
+- `POST /auth/login` - verify the password and return a JWT plus the user's `userID`, name, username, email, and role
+- `GET /auth/me` - retrieve the current logged-in user's profile
 - `POST /auth/logout` - record a logout event for the logged-in user
+- `GET /users/me` - retrieve the current logged-in user's profile
+- `PUT /users/me` - update the current user's name, username, or email without changing their role
+- `PUT /users/me/password` - update the current user's password using the current password and a new password
 - `GET /expenses` - retrieve the logged-in user's expenses
 - `POST /expenses` - create an expense for the logged-in user
 - `PUT /expenses/:id` - update one of the logged-in user's expenses
 - `DELETE /expenses/:id` - delete one of the logged-in user's expenses
 - `GET /admin/users` - admin-only list of users
 - `POST /admin/users` - admin-only creation of a user account
-- `PUT /admin/users/:id` - admin-only update of user profile, role, or password
+- `GET /admin/users/:id` - admin-only retrieval of one user's details
+- `PUT /admin/users/:id` - admin-only update of a user's name and username; email and role are read-only here
 - `DELETE /admin/users/:id` - admin-only deletion of a user account
 - `GET /admin/activity` - admin-only user activity history
+- `GET /admin/users/:id/activity` - admin-only activity history for one selected user
 
 ## Security Note
 
