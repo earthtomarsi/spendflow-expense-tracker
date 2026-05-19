@@ -6,6 +6,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const pool = require("./db");
 const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
 const expenseRoutes = require("./routes/expenseRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 
@@ -43,6 +44,7 @@ app.get("/test-db", async (req, res) => {
 
 // Route groups keep authentication, expenses, and admin features separated.
 app.use("/auth", authRoutes);
+app.use("/users", userRoutes);
 app.use("/expenses", expenseRoutes);
 app.use("/admin", adminRoutes);
 

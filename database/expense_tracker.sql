@@ -61,27 +61,27 @@ CREATE TABLE user_activity (
 -- Demo users.
 -- Password for both users is: password123
 INSERT INTO users (id, name, username, email, password_hash, role) VALUES
-(1, 'Marsi', 'marsi', 'marsi@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'admin'),
-(2, 'Demo User', 'demo', 'demo@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'user');
+(1, 'Admin', 'admin', 'admin@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'admin'),
+(2, 'Marsi', 'marsi', 'marsi@example.com', '$2b$10$ksBycUy/sIpepuewWwbMGujnALow/.YbXmPZLURha0dhiKYGlzQVO', 'user');
 
--- Existing demo expenses are assigned to the admin demo user.
+-- Existing demo expenses are assigned to the regular demo user.
 INSERT INTO expenses
 (id, user_id, title, category, amount, expense_date, description, created_at)
 VALUES
-(5, 1, 'Groceries', 'Food', 80.00, '2026-03-06', 'monthly groceries', '2026-04-06 19:31:02'),
-(6, 1, 'Jay Chou Concert', 'Leisure', 50.00, '2026-02-06', 'concert tix', '2026-04-06 19:47:00'),
-(8, 1, 'Caramel', 'Shopping', 10.50, '2026-04-05', 'chopstick holder, socks', '2026-04-06 20:41:39'),
-(9, 1, 'Opal Travel', 'Transport', 20.00, '2025-12-20', 'auto top up', '2026-04-06 20:42:31'),
-(10, 1, 'Sun''s Kitchen', 'Food', 16.00, '2026-03-06', '3 meals', '2026-04-06 20:44:51'),
-(12, 1, 'Lab', 'Food', 12.00, '2026-03-27', 'bread, coffee', '2026-04-06 21:13:19'),
-(13, 1, 'UberEats', 'Food', 150.00, '2025-12-06', 'uber ride', '2026-04-06 21:13:48'),
-(14, 1, 'Scoot', 'Leisure', 150.00, '2026-02-07', 'Melb trip', '2026-04-07 12:44:07'),
-(15, 1, 'Dinner', 'Food', 50.00, '2026-03-15', 'Japanese food', '2026-04-07 12:44:44'),
-(16, 1, 'Adobe', 'Bills', 30.00, '2026-01-07', 'monthly subscription', '2026-04-07 12:45:12'),
-(18, 1, 'Rent', 'Bills', 650.00, '2026-04-07', 'weekly rent', '2026-04-07 13:36:51'),
-(19, 1, 'Car', 'Transport', 3000.00, '2025-12-12', 'bought a used car off of Facebook Marketplace', '2026-04-07 13:52:02'),
-(20, 1, 'Taobao', 'Shopping', 180.00, '2026-03-14', 'clothes', '2026-04-07 14:53:23'),
-(23, 1, 'test', 'Food', 123.00, '2026-02-02', 'testing', '2026-04-07 15:51:17');
+(5, 2, 'Groceries', 'Food', 80.00, '2026-03-06', 'monthly groceries', '2026-04-06 19:31:02'),
+(6, 2, 'Jay Chou Concert', 'Leisure', 50.00, '2026-02-06', 'concert tix', '2026-04-06 19:47:00'),
+(8, 2, 'Caramel', 'Shopping', 10.50, '2026-04-05', 'chopstick holder, socks', '2026-04-06 20:41:39'),
+(9, 2, 'Opal Travel', 'Transport', 20.00, '2025-12-20', 'auto top up', '2026-04-06 20:42:31'),
+(10, 2, 'Sun''s Kitchen', 'Food', 16.00, '2026-03-06', '3 meals', '2026-04-06 20:44:51'),
+(12, 2, 'Lab', 'Food', 12.00, '2026-03-27', 'bread, coffee', '2026-04-06 21:13:19'),
+(13, 2, 'UberEats', 'Food', 150.00, '2025-12-06', 'uber ride', '2026-04-06 21:13:48'),
+(14, 2, 'Scoot', 'Leisure', 150.00, '2026-02-07', 'Melb trip', '2026-04-07 12:44:07'),
+(15, 2, 'Dinner', 'Food', 50.00, '2026-03-15', 'Japanese food', '2026-04-07 12:44:44'),
+(16, 2, 'Adobe', 'Bills', 30.00, '2026-01-07', 'monthly subscription', '2026-04-07 12:45:12'),
+(18, 2, 'Rent', 'Bills', 650.00, '2026-04-07', 'weekly rent', '2026-04-07 13:36:51'),
+(19, 2, 'Car', 'Transport', 3000.00, '2025-12-12', 'bought a used car off of Facebook Marketplace', '2026-04-07 13:52:02'),
+(20, 2, 'Taobao', 'Shopping', 180.00, '2026-03-14', 'clothes', '2026-04-07 14:53:23'),
+(23, 2, 'test', 'Food', 123.00, '2026-02-02', 'testing', '2026-04-07 15:51:17');
 
 INSERT INTO user_activity (user_id, action, details) VALUES
 (1, 'SEED_DATABASE', 'Initial demo data was imported.');
